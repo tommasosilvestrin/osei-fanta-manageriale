@@ -25,20 +25,9 @@ def save_data(data, path):
 
 def init_bilancio():
     return {
-        "ricavi": {"capitale_iniziale": 350.0, "nuovo_capitale": 0.0, "premi_sportivi": 0.0, "sponsor": 0.0, "incassi_stadio": 0.0, "plusvalenze": 0.0},
+        "ricavi": {"nuovo_capitale": 0.0, "premi_sportivi": 0.0, "sponsor": 0.0, "incassi_stadio": 0.0, "plusvalenze": 0.0},
         "costi": {"ammortamenti": 0.0, "monte_ingaggi": 0.0, "gestione_stadio": 0.0, "minusvalenze": 0.0, "costi_giocatori_ceduti": 0.0},
         "storico_movimenti": []
-    }
-
-def init_coppe():
-    return {
-        "ci": {"quarti": [], "semis": [], "finale": [], "perse_semis": [], "premi_dati": False},
-        "cl": {
-            "gir_A": [], "gir_B": [], 
-            "cal_A": [], "cal_B": [], 
-            "semis_andata": [], "semis_ritorno": [], 
-            "finale": [], "perse_semis": [], "premi_dati": False
-        }
     }
 
 def genera_calendario_berger(squadre_lista):
@@ -70,57 +59,17 @@ def genera_calendario_berger(squadre_lista):
                 full_calendar.append(new_md)
     return full_calendar
 
-def genera_gironi_4(sq):
-    return [
-        [{"home": sq[0], "away": sq[3], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[1], "away": sq[2], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}],
-        [{"home": sq[3], "away": sq[1], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[2], "away": sq[0], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}],
-        [{"home": sq[0], "away": sq[1], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[2], "away": sq[3], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}],
-        [{"home": sq[3], "away": sq[0], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[2], "away": sq[1], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}],
-        [{"home": sq[1], "away": sq[3], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[0], "away": sq[2], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}],
-        [{"home": sq[1], "away": sq[0], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}, {"home": sq[3], "away": sq[2], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi": False}]
-    ]
 
-def sync_cups_with_league(giornata_idx, gol_map, coppe):
-    # Mapping delle Giornate di Campionato ai Turni di Coppa
-    mappa = {
-        # Coppa Italia
-        15: [("ci", "quarti")], 
-        25: [("ci", "semis")], 
-        35: [("ci", "finale")],
-        
-        # Champions League
-        4: [("cl", "gironi", 0)], 
-        8: [("cl", "gironi", 1)], 
-        12: [("cl", "gironi", 2)],
-        16: [("cl", "gironi", 3)], 
-        20: [("cl", "gironi", 4)], 
-        24: [("cl", "gironi", 5)],
-        28: [("cl", "semis_andata")], 
-        32: [("cl", "semis_ritorno")], 
-        36: [("cl", "finale")]
+def init_coppe():
+    return {
+        "ci": {"quarti": [], "semis": [], "finale": [], "perse_semis": [], "premi_dati": False},
+        "cl": {
+            "gir_A": [], "gir_B": [], 
+            "punti_A": {}, "punti_B": {}, # Nuovo: Database manuale per i punti
+            "semis_andata": [], "semis_ritorno": [], 
+            "finale": [], "perse_semis": [], "premi_dati": False
+        }
     }
-    if giornata_idx in mappa:
-        for info in mappa[giornata_idx]:
-            comp, fase = info[0], info[1]
-            if comp == "ci":
-                for m in coppe[comp][fase]:
-                    if m["home"] in gol_map: m["gol_home"] = gol_map[m["home"]]
-                    if m["away"] in gol_map: m["gol_away"] = gol_map[m["away"]]
-            elif comp == "cl":
-                if fase == "gironi":
-                    idx_turno = info[2]
-                    for g_key in ["cal_A", "cal_B"]:
-                        if len(coppe["cl"][g_key]) > idx_turno:
-                            for m in coppe["cl"][g_key][idx_turno]:
-                                if m["home"] in gol_map: m["gol_home"] = gol_map[m["home"]]
-                                if m["away"] in gol_map: m["gol_away"] = gol_map[m["away"]]
-                                m["giocata"] = True
-                else:
-                    for m in coppe[comp][fase]:
-                        if m["home"] in gol_map: m["gol_home"] = gol_map[m["home"]]
-                        if m["away"] in gol_map: m["gol_away"] = gol_map[m["away"]]
-
-LIMITI_ROSA = {"Portiere": 3, "Difensore": 8, "Centrocampista": 8, "Attaccante": 6}
 
 # Caricamento Dati
 db = load_data(DB_PATH)
@@ -139,35 +88,16 @@ if "is_admin" not in st.session_state:
 st.sidebar.title("🔐 Accesso")
 if not st.session_state.is_admin:
     pwd = st.sidebar.text_input("Password Amministratore", type="password")
-    if pwd == "osei2026": # Sostituisci con la password che preferisci!
+    if pwd == "osei":
         st.session_state.is_admin = True
         st.rerun()
     elif pwd:
         st.sidebar.error("Password errata")
 else:
     st.sidebar.success("👑 Modalità Admin Attiva")
-    if st.sidebar.button("Logout (Torna Spettatore)"):
+    if st.sidebar.button("Logout"):
         st.session_state.is_admin = False
         st.rerun()
-        
-    # --- NUOVO: ZONA DOWNLOAD BACKUP ---
-    st.sidebar.divider()
-    st.sidebar.caption("💾 SALVATAGGIO DATI (Fallo a fine sessione!)")
-    
-    # Bottone Squadre
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "r", encoding="utf-8") as f:
-            st.sidebar.download_button("📥 Scarica squadre.json", f.read(), "squadre.json", "application/json")
-            
-    # Bottone Calendario
-    if os.path.exists(CAL_PATH):
-        with open(CAL_PATH, "r", encoding="utf-8") as f:
-            st.sidebar.download_button("📥 Scarica calendario.json", f.read(), "calendario.json", "application/json")
-            
-    # Bottone Coppe
-    if os.path.exists(COPPE_PATH):
-        with open(COPPE_PATH, "r", encoding="utf-8") as f:
-            st.sidebar.download_button("📥 Scarica coppe.json", f.read(), "coppe.json", "application/json")
 
 st.sidebar.divider()
 
@@ -232,15 +162,18 @@ if menu == "1. Setup Società":
 
             with col2:
                 st.subheader("Main Sponsor")
-                # Tolto l'input del valore, impostato a 30M fisso
                 ns = st.text_input("Nome Sponsor", value=sq_dati["sponsor"]["nome"] or "")
                 
                 if st.button("Firma Accordo Sponsor"):
-                    vs = 30.0 # Valore fissato automaticamente a 30M
-                    sq_dati["sponsor"] = {"nome": ns, "valore": vs}
-                    sq_dati["bilancio"]["ricavi"]["sponsor"] = vs
+                    sq_dati["sponsor"] = {"nome": ns, "valore": 30.0}
+                    # Accredita i 30M solo se la voce sponsor a bilancio è ancora a zero
+                    if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
+                        sq_dati["bilancio"]["ricavi"]["sponsor"] = 30.0
+                        sq_dati["cassa"] = round(sq_dati["cassa"] + 30.0, 2)
+                        sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +30.0M")
+                    
                     save_data(db, DB_PATH)
-                    st.success(f"Sponsor {ns} firmato a 30M!")
+                    st.success(f"Sponsor {ns} firmato! 30 Milioni accreditati in Cassa e a Bilancio per la stagione 1.")
 
 # ==========================================
 # 2. DASHBOARD & ROSA
@@ -298,16 +231,30 @@ elif menu == "2. Dashboard & Rosa":
                         st.write(f"- **{k.replace('_', ' ').title()}**: {v:.2f} M")
         
         st.divider()
-        st.subheader(f"👥 Rosa Ufficiale ({len(squadra['rosa'])}/25)")
         
+        # Filtriamo chi è in prestito altrove e chi è attivo
+        rosa_attiva = [g for g in squadra['rosa'] if not g.get("prestato_a")]
+        rosa_fuori = [g for g in squadra['rosa'] if g.get("prestato_a")]
+        
+        st.subheader(f"👥 Rosa Attiva ({len(rosa_attiva)} giocatori)")
         conteggio = {"Portiere": 0, "Difensore": 0, "Centrocampista": 0, "Attaccante": 0}
-        for g in squadra['rosa']: conteggio[g['ruolo']] += 1
-        st.write(f"**POR:** {conteggio['Portiere']}/3 | **DIF:** {conteggio['Difensore']}/8 | **CEN:** {conteggio['Centrocampista']}/8 | **ATT:** {conteggio['Attaccante']}/6")
+        for g in rosa_attiva: conteggio[g['ruolo']] += 1
+        st.write(f"**POR:** {conteggio['Portiere']} | **DIF:** {conteggio['Difensore']} | **CEN:** {conteggio['Centrocampista']} | **ATT:** {conteggio['Attaccante']}")
 
-        if squadra['rosa']:
-            df = pd.DataFrame(squadra['rosa'])
-            df_display = df[['nome', 'ruolo', 'anni_contratto', 'costo_acquisto', 'valore_residuo', 'ammortamento_annuo', 'stipendio']].copy()
+        if rosa_attiva:
+            df_attiva = pd.DataFrame(rosa_attiva)
+            colonne_visibili = ['nome', 'ruolo', 'anni_contratto', 'costo_acquisto', 'valore_residuo', 'ammortamento_annuo', 'stipendio']
+            df_display = df_attiva[colonne_visibili].copy()
+            if 'in_prestito_da' in df_attiva.columns:
+                df_display['In Prestito Da'] = df_attiva['in_prestito_da']
             st.dataframe(df_display, use_container_width=True)
+            
+        if rosa_fuori:
+            st.subheader(f"✈️ Giocatori Ceduti in Prestito ({len(rosa_fuori)})")
+            df_fuori = pd.DataFrame(rosa_fuori)
+            df_fuori_disp = df_fuori[['nome', 'ruolo', 'prestato_a', 'valore_residuo', 'ammortamento_annuo']].copy()
+            df_fuori_disp.rename(columns={'prestato_a': 'In Prestito A'}, inplace=True)
+            st.dataframe(df_fuori_disp, use_container_width=True)
 
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
@@ -323,7 +270,10 @@ elif menu == "3. Mercato (Definitivi)":
             sq_sel = st.selectbox("Squadra Operante", list(db.keys()))
             squadra = db[sq_sel]
             
-            st.write(f"💰 **Cassa:** {squadra['cassa']} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
+            # --- 1. CREIAMO IL SEGNAPOSTO ---
+            info_header = st.empty()
+            # Lo riempiamo subito con i dati attuali
+            info_header.write(f"💰 **Cassa:** {squadra['cassa']:.2f} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
             
             t1, t2, t3, t4 = st.tabs(["Acquista", "Vendi", "Svincola", "Rinnovo"])
             
@@ -350,17 +300,18 @@ elif menu == "3. Mercato (Definitivi)":
                         st.info(f"Dati Contratto: Stipendio {s_base}M | Ammortamento {amm:.2f}M annui.")
                     
                     if st.form_submit_button("Acquista"):
-                        ruoli_attuali = sum(1 for g in squadra['rosa'] if g['ruolo'] == r)
-                        if len(squadra['rosa']) >= 25: st.error("Rosa piena (25/25).")
-                        elif ruoli_attuali >= LIMITI_ROSA[r]: st.error(f"Limite per ruolo {r} raggiunto ({LIMITI_ROSA[r]}).")
-                        elif c > squadra['cassa']: st.error("Cassa insufficiente!")
+                        if c > squadra['cassa']: st.error("Cassa insufficiente!")
                         else:
                             giocatore = {"nome": n, "ruolo": r, "costo_acquisto": c, "anni_contratto": anni_effettivi, "stipendio": s_base, "ammortamento_annuo": amm, "anni_trascorsi": 0, "valore_residuo": c, "acquistato_a_gennaio": is_gennaio}
                             squadra['rosa'].append(giocatore)
-                            squadra['cassa'] -= c
+                            squadra['cassa'] = round(squadra['cassa'] - c, 2)
                             squadra['bilancio']['storico_movimenti'].append(f"Acquisto {n}: -{c}M")
                             save_data(db, DB_PATH)
                             st.success(f"{n} acquistato!")
+                            
+                            # --- 2. AGGIORNIAMO IL SEGNAPOSTO ---
+                            # Scriviamo i nuovi dati sopra quelli vecchi in tempo reale!
+                            info_header.write(f"💰 **Cassa:** {squadra['cassa']:.2f} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
                             
             with t2:
                 if squadra['rosa']:
@@ -377,7 +328,7 @@ elif menu == "3. Mercato (Definitivi)":
                             squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
                         
                         diff = prezzo_v - val_res_effettivo
-                        squadra['cassa'] += prezzo_v
+                        squadra['cassa'] = round(squadra['cassa'] + prezzo_v, 2)
                         if diff > 0: squadra['bilancio']['ricavi']['plusvalenze'] += diff
                         else: squadra['bilancio']['costi']['minusvalenze'] += abs(diff)
                         
@@ -460,28 +411,31 @@ elif menu == "4. Mercato (Prestiti)":
                     cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
                 
                 if st.button("Ufficializza Prestito"):
-                    if len(db[sq_acquirente]['rosa']) >= 25: st.error("Rosa acquirente piena!")
-                    elif costo_prestito > db[sq_acquirente]['cassa']: st.error("Cassa acquirente insufficiente per il prestito oneroso!")
+                    if costo_prestito > db[sq_acquirente]['cassa']:
+                        st.error("Cassa acquirente insufficiente per il prestito oneroso!")
                     else:
-                        g_acq = g_obj.copy()
-                        g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
-                        g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_acq['anni_prestito_rimanenti'] = durata_prestito
-                        db[sq_acquirente]['rosa'].append(g_acq)
-                        
-                        g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
-                        g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_obj['anni_prestito_rimanenti'] = durata_prestito
-                        
-                        if costo_prestito > 0:
-                            db[sq_acquirente]['cassa'] -= costo_prestito
-                            db[sq_cedente]['cassa'] += costo_prestito
-                            db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
-                            db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                        if len(db[sq_acquirente]['rosa']) >= 25: st.error("Rosa acquirente piena!")
+                        elif costo_prestito > db[sq_acquirente]['cassa']: st.error("Cassa acquirente insufficiente per il prestito oneroso!")
+                        else:
+                            g_acq = g_obj.copy()
+                            g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
+                            g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                            g_acq['anni_prestito_rimanenti'] = durata_prestito
+                            db[sq_acquirente]['rosa'].append(g_acq)
                             
-                        save_data(db, DB_PATH)
-                        st.success(f"Prestito di {durata_prestito} anno/i registrato con successo!")
-                        st.rerun()
+                            g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
+                            g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                            g_obj['anni_prestito_rimanenti'] = durata_prestito
+                            
+                            if costo_prestito > 0:
+                                db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
+                                db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
+                                db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
+                                db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                                
+                            save_data(db, DB_PATH)
+                            st.success(f"Prestito di {durata_prestito} anno/i registrato con successo!")
+                            st.rerun()
                         
             st.divider()
             st.subheader("🛒 Esercita Riscatto")
@@ -563,9 +517,6 @@ elif menu == "5. Calendario & Partite":
                                     h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
                                 match["incassi_assegnati"] = True
                         
-                        # MAGIA COPPE: Sincronizza i gol appena inseriti con le Coppe!
-                        sync_cups_with_league(giornata_idx + 1, gol_map, coppe)
-                        
                         save_data(db, DB_PATH)
                         save_data(calendario, CAL_PATH)
                         save_data(coppe, COPPE_PATH)
@@ -604,21 +555,22 @@ elif menu == "6. Classifica Campionato":
                 p_spons = premi_sponsor[pos]
                 p_camp = premi_campionato[pos]
                 
-                # Aggiunge i soldi REALI alla Cassa
-                team['cassa'] += (p_spons + p_camp)
-                
-                team['bilancio']['ricavi']['sponsor'] += p_spons
+                # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
+                team['cassa'] = round(team['cassa'] + p_camp, 2)
                 team['bilancio']['ricavi']['premi_sportivi'] += p_camp
-                team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M (Cassa e Bilancio)")
-                team['bilancio']['storico_movimenti'].append(f"Sponsor Finale ({pos+1}°): +{p_spons}M (Cassa e Bilancio)")
+                team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                
+                # 2. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
+                team['sponsor_prenotato'] = p_spons
+                
             save_data(db, DB_PATH)
-            st.success("Premi Campionato e Sponsor distribuiti!")
+            st.success("Premi Campionato erogati! I contratti Sponsor per l'anno prossimo sono stati prenotati.")
 
 # ==========================================
 # 7. COPPE UFFICIALI
 # ==========================================
 elif menu == "7. Coppe (Italia & CL)":
-    st.header("🏆 Gestione Coppe")
+    st.header("🏆 Gestione Coppe (Manuale)")
     
     t_ci, t_cl = st.tabs(["🇮🇹 Coppa Italia", "🇪🇺 Champions League"])
     
@@ -626,7 +578,7 @@ elif menu == "7. Coppe (Italia & CL)":
     with t_ci:
         st.subheader("Tabellone Coppa Italia")
         if not coppe["ci"]["quarti"]:
-            if st.button("Sorteggia Tabellone Quarti"):
+            if st.session_state.is_admin and st.button("Sorteggia Tabellone Quarti"):
                 teams = list(db.keys())
                 random.shuffle(teams)
                 coppe["ci"]["quarti"] = [{"home": teams[i], "away": teams[i+1], "gol_home": 0, "gol_away": 0, "vincente": teams[i]} for i in range(0, 8, 2)]
@@ -634,15 +586,17 @@ elif menu == "7. Coppe (Italia & CL)":
                 st.rerun()
         
         if coppe["ci"]["quarti"]:
-            st.write("🔴 **Quarti di Finale** (Sincronizzati con Giornata 15)")
+            st.write("🔴 **Quarti di Finale**")
             for i, m in enumerate(coppe["ci"]["quarti"]):
-                c1, c2, c3 = st.columns([2,1,2])
-                c1.write(f"{m['home']} vs {m['away']}")
-                c2.write(f"**{m['gol_home']} - {m['gol_away']}**")
-                m['vincente'] = c3.selectbox("Passa il turno:", [m['home'], m['away']], index=0 if m['vincente']==m['home'] else 1, key=f"ci_q_{i}", disabled=not st.session_state.is_admin)
+                c1, c2, c3, c4 = st.columns([2,1,1,2])
+                c1.write(m['home'])
+                m['gol_home'] = c2.number_input("Gol H", value=m.get('gol_home',0), key=f"ci_q_h_{i}", disabled=not st.session_state.is_admin)
+                m['gol_away'] = c3.number_input("Gol A", value=m.get('gol_away',0), key=f"ci_q_a_{i}", disabled=not st.session_state.is_admin)
+                m['vincente'] = c4.selectbox("Passa il turno:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
             
             if st.session_state.is_admin:
-                if not coppe["ci"]["semis"] and st.button("Salva Quarti & Genera Semifinali"):
+                if st.button("Salva Risultati Quarti CI"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
+                if not coppe["ci"]["semis"] and st.button("Genera Semifinali"):
                     vincitori = [m['vincente'] for m in coppe["ci"]["quarti"]]
                     coppe["ci"]["semis"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0, "vincente": vincitori[0]}, {"home": vincitori[2], "away": vincitori[3], "gol_home": 0, "gol_away": 0, "vincente": vincitori[2]}]
                     save_data(coppe, COPPE_PATH)
@@ -650,15 +604,17 @@ elif menu == "7. Coppe (Italia & CL)":
 
         if coppe["ci"]["semis"]:
             st.divider()
-            st.write("🟡 **Semifinali** (Sincronizzate con Giornata 25)")
+            st.write("🟡 **Semifinali**")
             for i, m in enumerate(coppe["ci"]["semis"]):
-                c1, c2, c3 = st.columns([2,1,2])
-                c1.write(f"{m['home']} vs {m['away']}")
-                c2.write(f"**{m['gol_home']} - {m['gol_away']}**")
-                m['vincente'] = c3.selectbox("Passa in Finale:", [m['home'], m['away']], index=0 if m['vincente']==m['home'] else 1, key=f"ci_s_{i}", disabled=not st.session_state.is_admin)
+                c1, c2, c3, c4 = st.columns([2,1,1,2])
+                c1.write(m['home'])
+                m['gol_home'] = c2.number_input("Gol H", value=m.get('gol_home',0), key=f"ci_s_h_{i}", disabled=not st.session_state.is_admin)
+                m['gol_away'] = c3.number_input("Gol A", value=m.get('gol_away',0), key=f"ci_s_a_{i}", disabled=not st.session_state.is_admin)
+                m['vincente'] = c4.selectbox("Passa in Finale:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
             
             if st.session_state.is_admin:
-                if not coppe["ci"]["finale"] and st.button("Salva Semifinali & Genera Finale"):
+                if st.button("Salva Risultati Semifinali CI"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
+                if not coppe["ci"]["finale"] and st.button("Genera Finale"):
                     vincitori = [m['vincente'] for m in coppe["ci"]["semis"]]
                     perdenti = [m['home'] if m['vincente']==m['away'] else m['away'] for m in coppe["ci"]["semis"]]
                     coppe["ci"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0, "vincente": vincitori[0]}]
@@ -668,92 +624,92 @@ elif menu == "7. Coppe (Italia & CL)":
                 
         if coppe["ci"]["finale"]:
             st.divider()
-            st.write("🟢 **Finale** (Sincronizzata con Giornata 35)")
+            st.write("🟢 **Finale**")
             m = coppe["ci"]["finale"][0]
-            c1, c2, c3 = st.columns([2,1,2])
-            c1.write(f"{m['home']} vs {m['away']}")
-            c2.write(f"**{m['gol_home']} - {m['gol_away']}**")
-            m['vincente'] = c3.selectbox("VINCITORE:", [m['home'], m['away']], index=0 if m['vincente']==m['home'] else 1, key="ci_f", disabled=not st.session_state.is_admin)
-            save_data(coppe, COPPE_PATH)
+            c1, c2, c3, c4 = st.columns([2,1,1,2])
+            c1.write(m['home'])
+            m['gol_home'] = c2.number_input("Gol H", value=m.get('gol_home',0), key="ci_f_h", disabled=not st.session_state.is_admin)
+            m['gol_away'] = c3.number_input("Gol A", value=m.get('gol_away',0), key="ci_f_a", disabled=not st.session_state.is_admin)
+            m['vincente'] = c4.selectbox("VINCITORE:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key="ci_f_v", disabled=not st.session_state.is_admin)
             
-            st.divider()
-            if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia (Bilancio e Cassa)", type="primary"):
-                vincente = m['vincente']
-                perdente = m['home'] if vincente == m['away'] else m['away']
-                
-                db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
-                db[vincente]['cassa'] += 25.0
-                
-                db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 15.0
-                db[perdente]['cassa'] += 15.0
-                
-                for sq in coppe["ci"]["perse_semis"]: 
-                    db[sq]['bilancio']['ricavi']['premi_sportivi'] += 5.0
-                    db[sq]['cassa'] += 5.0
-                coppe["ci"]["premi_dati"] = True
-                save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                st.success("Premi Coppa Italia distribuiti!")
+            if st.session_state.is_admin:
+                if st.button("Salva Risultato Finale CI"): save_data(coppe, COPPE_PATH); st.success("Salvato!")
+                st.divider()
+                if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia (Bilancio e Cassa)", type="primary"):
+                    vincente = m['vincente']
+                    perdente = m['home'] if vincente == m['away'] else m['away']
+                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
+                    db[vincente]['cassa'] += 25.0
+                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 15.0
+                    db[perdente]['cassa'] += 15.0
+                    for sq in coppe["ci"]["perse_semis"]: 
+                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 5.0
+                        db[sq]['cassa'] += 5.0
+                    coppe["ci"]["premi_dati"] = True
+                    save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
+                    st.success("Premi Coppa Italia distribuiti!")
 
     # ---------------- CHAMPIONS LEAGUE ----------------
     with t_cl:
         st.subheader("Champions League")
         if not coppe["cl"]["gir_A"]:
-            if st.button("Sorteggia Gironi CL"):
+            if st.session_state.is_admin and st.button("Sorteggia Gironi CL"):
                 teams = list(db.keys())
                 random.shuffle(teams)
-                coppe["cl"]["gir_A"] = teams[:4]; coppe["cl"]["gir_B"] = teams[4:]
-                coppe["cl"]["cal_A"] = genera_gironi_4(coppe["cl"]["gir_A"])
-                coppe["cl"]["cal_B"] = genera_gironi_4(coppe["cl"]["gir_B"])
+                coppe["cl"]["gir_A"] = teams[:4]
+                coppe["cl"]["gir_B"] = teams[4:]
+                coppe["cl"]["punti_A"] = {t: 0 for t in teams[:4]}
+                coppe["cl"]["punti_B"] = {t: 0 for t in teams[4:]}
                 save_data(coppe, COPPE_PATH)
                 st.rerun()
                 
         if coppe["cl"]["gir_A"]:
-            st.write("Fase a Gironi (Sincronizzata Giornate 4, 8, 12, 16, 20, 24)")
+            st.write("Fase a Gironi (Classifica Manuale)")
+            if "punti_A" not in coppe["cl"]: coppe["cl"]["punti_A"] = {t: 0 for t in coppe["cl"]["gir_A"]}
+            if "punti_B" not in coppe["cl"]: coppe["cl"]["punti_B"] = {t: 0 for t in coppe["cl"]["gir_B"]}
+
             colA, colB = st.columns(2)
             
-            # Calcolo Punti Rapido per Girone A
-            p_A = {s: 0 for s in coppe["cl"]["gir_A"]}
-            for turno in coppe["cl"]["cal_A"]:
-                for m in turno:
-                    if m["giocata"]:
-                        if m["gol_home"] > m["gol_away"]: p_A[m["home"]] += 3
-                        elif m["gol_home"] == m["gol_away"]: p_A[m["home"]] += 1; p_A[m["away"]] += 1
-                        else: p_A[m["away"]] += 3
-            df_A = pd.DataFrame(list(p_A.items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
-            colA.write("**Girone A**")
-            colA.dataframe(df_A, hide_index=True)
+            with colA:
+                st.write("**Girone A**")
+                for t in coppe["cl"]["gir_A"]:
+                    coppe["cl"]["punti_A"][t] = st.number_input(f"Punti {t}", value=coppe["cl"]["punti_A"].get(t,0), key=f"pa_{t}", disabled=not st.session_state.is_admin)
+                df_A = pd.DataFrame(list(coppe["cl"]["punti_A"].items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
+                st.dataframe(df_A, hide_index=True)
             
-            # Calcolo Punti Rapido per Girone B
-            p_B = {s: 0 for s in coppe["cl"]["gir_B"]}
-            for turno in coppe["cl"]["cal_B"]:
-                for m in turno:
-                    if m["giocata"]:
-                        if m["gol_home"] > m["gol_away"]: p_B[m["home"]] += 3
-                        elif m["gol_home"] == m["gol_away"]: p_B[m["home"]] += 1; p_B[m["away"]] += 1
-                        else: p_B[m["away"]] += 3
-            df_B = pd.DataFrame(list(p_B.items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
-            colB.write("**Girone B**")
-            colB.dataframe(df_B, hide_index=True)
+            with colB:
+                st.write("**Girone B**")
+                for t in coppe["cl"]["gir_B"]:
+                    coppe["cl"]["punti_B"][t] = st.number_input(f"Punti {t}", value=coppe["cl"]["punti_B"].get(t,0), key=f"pb_{t}", disabled=not st.session_state.is_admin)
+                df_B = pd.DataFrame(list(coppe["cl"]["punti_B"].items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
+                st.dataframe(df_B, hide_index=True)
 
-            if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali CL"):
-                # Primi vs Secondi
-                a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
-                b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
-                coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
-                coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0, "vincente": a1}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0, "vincente": b1}]
-                save_data(coppe, COPPE_PATH)
-                st.rerun()
+            if st.session_state.is_admin:
+                if st.button("Salva Punti Gironi CL"): save_data(coppe, COPPE_PATH); st.success("Punti Salvati!")
+                if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali CL"):
+                    a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
+                    b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
+                    coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
+                    coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0, "vincente": a1}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0, "vincente": b1}]
+                    save_data(coppe, COPPE_PATH)
+                    st.rerun()
 
         if coppe["cl"]["semis_andata"]:
             st.divider()
-            st.write("🟡 **Semifinali Andata (G28) e Ritorno (G32)**")
+            st.write("🟡 **Semifinali (Andata e Ritorno)**")
             for i in range(2):
                 ma = coppe["cl"]["semis_andata"][i]
                 mr = coppe["cl"]["semis_ritorno"][i]
-                st.write(f"**{ma['home']} vs {ma['away']}** | Andata: {ma['gol_home']}-{ma['gol_away']} | Ritorno: {mr['gol_home']}-{mr['gol_away']}")
-                mr['vincente'] = st.selectbox("Passa in Finale:", [ma['home'], ma['away']], index=0 if mr['vincente']==ma['home'] else 1, key=f"cl_s_{i}", disabled=not st.session_state.is_admin)
+                st.write(f"**{ma['home']} vs {ma['away']}**")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                ma['gol_home'] = c1.number_input(f"And. {ma['home']}", value=ma.get('gol_home',0), key=f"cl_s_ah_{i}", disabled=not st.session_state.is_admin)
+                ma['gol_away'] = c2.number_input(f"And. {ma['away']}", value=ma.get('gol_away',0), key=f"cl_s_aa_{i}", disabled=not st.session_state.is_admin)
+                mr['gol_home'] = c3.number_input(f"Rit. {mr['home']}", value=mr.get('gol_home',0), key=f"cl_s_rh_{i}", disabled=not st.session_state.is_admin)
+                mr['gol_away'] = c4.number_input(f"Rit. {mr['away']}", value=mr.get('gol_away',0), key=f"cl_s_ra_{i}", disabled=not st.session_state.is_admin)
+                mr['vincente'] = c5.selectbox("Passa in Finale:", [ma['home'], ma['away']], index=0 if mr.get('vincente')==ma['home'] else 1, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
             
             if st.session_state.is_admin:
+                if st.button("Salva Risultati Semifinali CL"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
                 if not coppe["cl"]["finale"] and st.button("Genera Finale CL"):
                     vincitori = [m['vincente'] for m in coppe["cl"]["semis_ritorno"]]
                     perdenti = [m['home'] if m['vincente']==m['away'] else m['away'] for m in coppe["cl"]["semis_ritorno"]]
@@ -764,34 +720,33 @@ elif menu == "7. Coppe (Italia & CL)":
                 
         if coppe["cl"]["finale"]:
             st.divider()
-            st.write("🟢 **Finale** (Sincronizzata con Giornata 36)")
+            st.write("🟢 **Finale**")
             m = coppe["cl"]["finale"][0]
-            c1, c2, c3 = st.columns([2,1,2])
-            c1.write(f"{m['home']} vs {m['away']}")
-            c2.write(f"**{m['gol_home']} - {m['gol_away']}**")
-            m['vincente'] = c3.selectbox("VINCITORE CL:", [m['home'], m['away']], index=0 if m['vincente']==m['home'] else 1, key="cl_f", disabled=not st.session_state.is_admin)
-            save_data(coppe, COPPE_PATH)
+            c1, c2, c3, c4 = st.columns([2,1,1,2])
+            c1.write(m['home'])
+            m['gol_home'] = c2.number_input("Gol H", value=m.get('gol_home',0), key="cl_f_h", disabled=not st.session_state.is_admin)
+            m['gol_away'] = c3.number_input("Gol A", value=m.get('gol_away',0), key="cl_f_a", disabled=not st.session_state.is_admin)
+            m['vincente'] = c4.selectbox("VINCITORE CL:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key="cl_f_v", disabled=not st.session_state.is_admin)
             
-            st.divider()
-            if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions (Bilancio e Cassa)", type="primary"):
-                vincente = m['vincente']
-                perdente = m['home'] if vincente == m['away'] else m['away']
-                
-                db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
-                db[vincente]['cassa'] += 35.0
-                
-                db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
-                db[perdente]['cassa'] += 25.0
-                
-                for sq in coppe["cl"]["perse_semis"]: 
-                    db[sq]['bilancio']['ricavi']['premi_sportivi'] += 15.0
-                    db[sq]['cassa'] += 15.0
-                coppe["cl"]["premi_dati"] = True
-                save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                st.success("Premi Champions League distribuiti!")
+            if st.session_state.is_admin:
+                if st.button("Salva Risultato Finale CL"): save_data(coppe, COPPE_PATH); st.success("Salvato!")
+                st.divider()
+                if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions (Bilancio e Cassa)", type="primary"):
+                    vincente = m['vincente']
+                    perdente = m['home'] if vincente == m['away'] else m['away']
+                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
+                    db[vincente]['cassa'] += 35.0
+                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
+                    db[perdente]['cassa'] += 25.0
+                    for sq in coppe["cl"]["perse_semis"]: 
+                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 15.0
+                        db[sq]['cassa'] += 15.0
+                    coppe["cl"]["premi_dati"] = True
+                    save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
+                    st.success("Premi Champions League distribuiti!")
 
 # ==========================================
-# 9. CHIUSURA FISCALE
+# 8. CHIUSURA FISCALE
 # ==========================================
 elif menu == "8. Chiusura Fiscale Bilancio":
     st.header("📜 Chiusura Fiscale")
@@ -818,30 +773,42 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                         else: tot_ingaggi += stip
                     else: tot_ingaggi += stip * (g['perc_stipendio_pagato'] / 100)
                         
-                b['costi']['ammortamenti'] = tot_ammortamenti
-                b['costi']['monte_ingaggi'] = tot_ingaggi
+                b['costi']['ammortamenti'] = round(tot_ammortamenti, 2)
+                b['costi']['monte_ingaggi'] = round(tot_ingaggi, 2)
                 
                 costo_stadio = b['costi']['gestione_stadio']
-                dati['cassa'] -= (tot_ingaggi + costo_stadio)
+                dati['cassa'] = round(dati['cassa'] - (tot_ingaggi + costo_stadio), 2)
                 
-                utile = sum(b['ricavi'].values()) - sum(b['costi'].values())
+                utile = round(sum(b['ricavi'].values()) - sum(b['costi'].values()), 2)
                 
                 if utile < 0:
                     dati['cassa'] += utile  
                 
                 dati['ultimo_bilancio_chiuso'] = {
-                    "ricavi": dict(dati['bilancio']['ricavi']),
-                    "costi": dict(dati['bilancio']['costi']),
+                    "ricavi": {k: round(v, 2) for k, v in dati['bilancio']['ricavi'].items()},
+                    "costi": {k: round(v, 2) for k, v in dati['bilancio']['costi'].items()},
                     "utile": utile,
                     "cassa_partenza_nuovo_anno": dati['cassa']
                 }
                 
+                # 1. AZZERAMENTO BILANCIO: Chiudiamo l'anno vecchio, apriamo l'anno nuovo
                 dati['bilancio'] = init_bilancio()
-                dati['bilancio']['ricavi']['capitale_iniziale'] = 0.0 
                 
+                # --- 1.5 INIEZIONE DI CAPITALE NUOVO ANNO (Diritti TV + Sponsor Prenotato) ---
+                # Inietta 50 Milioni freschi in CASSA per fare mercato
                 dati['cassa'] += 50.0
+                # E li registra regolarmente nei RICAVI della nuova stagione
                 dati['bilancio']['ricavi']['nuovo_capitale'] = 50.0
-                dati['bilancio']['storico_movimenti'].append("Iniezione Diritti TV: +50.0M")
+                dati['bilancio']['storico_movimenti'].append("Iniezione Nuovo Capitale: +50.0M (Cassa e Ricavi)")
+                
+                # Eroga lo Sponsor calcolato alla fine della stagione precedente!
+                # (Se non c'è una prenotazione - ovvero il 1° anno - eroga 0.0)
+                sponsor_nuovo = dati.get('sponsor_prenotato', 0.0)
+                if sponsor_nuovo > 0:
+                    dati['cassa'] += sponsor_nuovo
+                    dati['bilancio']['ricavi']['sponsor'] = sponsor_nuovo
+                    dati['bilancio']['storico_movimenti'].append(f"Accordo Sponsor Annuale: +{sponsor_nuovo}M")
+                    del dati['sponsor_prenotato'] # Rimuove la prenotazione dopo l'erogazione
                 
                 nuova_rosa = []
                 for g in dati['rosa']:
