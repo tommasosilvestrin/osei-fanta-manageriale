@@ -111,7 +111,8 @@ menu = st.sidebar.radio("Navigazione", [
     "5. Calendario & Partite",
     "6. Classifica Campionato",
     "7. Coppe (Italia & CL)",
-    "8. Chiusura Fiscale Bilancio"
+    "8. Chiusura Fiscale Bilancio",
+    "9. Regolamento Ufficiale"
 ])
 
 # ==========================================
@@ -225,7 +226,7 @@ elif menu == "2. Dashboard & Rosa":
                     if v > 0: 
                         st.write(f"- **{k.replace('_', ' ').title()}**: {v:.2f} M")
             with col_cost:
-                st.markdown("#### 🔴 Costi Proiettati")
+                st.markdown("#### 🔴 Costi Attuali")
                 for k, v in b['costi'].items():
                     if v > 0: 
                         st.write(f"- **{k.replace('_', ' ').title()}**: {v:.2f} M")
@@ -570,7 +571,7 @@ elif menu == "6. Classifica Campionato":
 # 7. COPPE UFFICIALI
 # ==========================================
 elif menu == "7. Coppe (Italia & CL)":
-    st.header("🏆 Gestione Coppe (Manuale)")
+    st.header("🏆 Gestione Coppe")
     
     t_ci, t_cl = st.tabs(["🇮🇹 Coppa Italia", "🇪🇺 Champions League"])
     
@@ -917,3 +918,243 @@ elif menu == "8. Chiusura Fiscale Bilancio":
             st.info("Questa squadra non ha ancora chiuso un bilancio aziendale.")
     else:
         st.info("Nessuno storico disponibile. Esegui la chiusura fiscale a fine stagione per generare i prospetti.")
+
+# ==========================================
+# 9. REGOLAMENTO UFFICIALE
+# ==========================================
+elif menu == "9. Regolamento Ufficiale":
+    st.title("⚽ Osei Football League")
+    st.header("Regolamento Ufficiale Manageriale")
+    st.caption("A cura della Direzione Osei")
+    st.divider()
+
+    # SECTION 1
+    st.subheader("1. Disposizioni Generali e Principi Contabili")
+    st.markdown("""
+    Il presente regolamento disciplina l'organizzazione e la gestione sportivo-finanziaria delle società appartenenti alla Osei Football League. Il sistema manageriale impone il rigoroso rispetto dei vincoli economici, strutturati sulla netta separazione tra due principi contabili fondamentali:
+
+    * **La Liquidità (Cassa):** Rappresenta il capitale circolante a disposizione della società per effettuare transazioni immediate (es. rilanci d'asta, offerte di mercato). Le variazioni di liquidità si registrano contestualmente al momento dell'esborso o dell'incasso reale. I fondi in cassa non si azzerano mai a fine anno.
+    * **Il Bilancio d'Esercizio:** Rappresenta il documento contabile di fine stagione che riepiloga i Costi e i Ricavi imputabili al singolo anno sportivo, al fine di determinare il risultato d'esercizio (Utile o Perdita) e valutare il rispetto del Fair Play Finanziario. Il Bilancio viene azzerato al termine di ogni stagione sportiva.
+    
+    ### 1.1 Capitale Sociale Iniziale (Anno 1)
+    All'atto della costituzione, la Direzione provvede all'assegnazione di un fondo di dotazione iniziale pari a **350 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
+
+    **Nota Contabile:** Al fine di non alterare i parametri del Fair Play Finanziario, tale somma iniziale transita **esclusivamente nella Cassa reale** e non concorre in alcun modo a formare il Valore della Produzione (Ricavi) del primo Bilancio d'Esercizio.
+    """)
+
+    st.divider()
+    
+    # SECTION 2
+    st.subheader("2. Infrastrutture e Sponsorizzazioni Commerciali")
+    st.markdown("""
+    All'apertura di ogni stagione, le società devono strutturare le proprie fondamenta commerciali scegliendo l'impianto sportivo e registrando il Main Sponsor.
+    
+    ### 2.1 Impianti Sportivi
+    Ciascuna società ha l'obbligo di selezionare la capienza del proprio impianto sportivo. Da tale scelta derivano specifici oneri fissi di gestione (da imputare nei Costi di Bilancio) e proventi legati ai risultati delle partite disputate in casa (da imputare immediatamente in Cassa e nei Ricavi di Bilancio):
+    * **Impianto di 1ª Categoria (20.000 posti):**
+      * Costo fisso annuo: **5 milioni**
+      * Incasso base per partita: **0.1 milioni**
+      * Incasso totale in caso di pareggio: **0.2 milioni**
+      * Incasso totale in caso di vittoria: **0.4 milioni**
+    * **Impianto di 2ª Categoria (50.000 posti):**
+      * Costo fisso annuo: **12 milioni**
+      * Incasso base per partita: **0.3 milioni**
+      * Incasso totale in caso di pareggio: **0.5 milioni**
+      * Incasso totale in caso di vittoria: **0.9 milioni**
+    * **Impianto di 3ª Categoria (80.000 posti):**
+      * Costo fisso annuo: **20 milioni**
+      * Incasso base per partita: **0.6 milioni**
+      * Incasso totale in caso di pareggio: **1.0 milioni**
+      * Incasso totale in caso di vittoria: **1.5 milioni**
+    
+    ### 2.2 Sponsorizzazioni Commerciali
+    Ciascuna società ha diritto alla sottoscrizione di un accordo di Main Sponsorship (scelta del nome commerciale). Per la primissima stagione di fondazione della Lega, al fine di garantire l'operatività e la sostenibilità iniziale, tutte le società percepiscono una quota fissa d'ingresso pari a **30 milioni**. 
+
+    A partire dalla seconda stagione, l'importo erogato all'inizio di ogni anno sportivo è calcolato esclusivamente in base al piazzamento ottenuto nella classifica generale della stagione antecedente:
+    * **1ª Classificata:** 50 milioni
+    * **2ª Classificata:** 46 milioni
+    * **3ª Classificata:** 42 milioni
+    * **4ª Classificata:** 38 milioni
+    * **5ª Classificata:** 35 milioni
+    * **6ª Classificata:** 32 milioni
+    * **7ª Classificata:** 30 milioni
+    * **8ª Classificata:** 30 milioni
+    """)
+
+    st.divider()
+
+    # SECTION 3
+    st.subheader("3. Gestione Sportiva: Composizione della Rosa e Contratti")
+    st.markdown("""
+    ### 3.1 Limiti e Composizione della Rosa
+    L'organico ufficiale di ciascuna società deve essere composto da un numero inderogabile di **25 calciatori**. Non sono ammessi posti vacanti né tesseramenti in esubero. La ripartizione per ruoli è vincolante ed è fissata a: **3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti**.
+
+    ### 3.2 Vincoli Contrattuali e Compensi
+    L'acquisizione di un calciatore comporta la contestuale stipula di un contratto di prestazione sportiva di durata compresa tra 1 e 5 anni. Tutti i contratti iniziano l'1 Gennaio oppure l'1 Luglio di ogni anno e terminano tutti il 30 Giugno. Il compenso annuale (Stipendio) costituisce un costo d'esercizio ricorrente, ed è parametrato al costo storico del cartellino:
+    * Costo d'acquisto da 1 a 10 milioni: Stipendio annuale di **0.5 milioni**
+    * Costo d'acquisto da 11 a 30 milioni: Stipendio annuale di **1.5 milioni**
+    * Costo d'acquisto da 31 a 60 milioni: Stipendio annuale di **3.0 milioni**
+    * Costo d'acquisto da 61 a 90 milioni: Stipendio annuale di **5.0 milioni**
+    * Costo d'acquisto da 91 milioni in su: Stipendio annuale di **8.0 milioni**
+    
+    Eventuali rinnovi contrattuali, da formalizzarsi prima della naturale scadenza (ovvero prima del 30 Giugno dell'ultimo anno di contratto), comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere.
+    """)
+
+    st.divider()
+
+    # SECTION 4
+    st.subheader("4. Operazioni di Mercato e Imputazioni Contabili")
+    st.markdown("""
+    ### 4.1 Acquisizione a Titolo Definitivo di un Calciatore
+    L'acquisizione dei diritti alle prestazioni sportive di un calciatore genera i seguenti effetti:
+    1. **Sotto il profilo della Liquidità (Cassa):** Il corrispettivo d'acquisto viene detratto integralmente e istantaneamente dal saldo disponibile.
+    2. **Sotto il profilo Economico (Bilancio):** Il costo storico non incide interamente sull'esercizio in corso. Ai costi d'esercizio vengono imputati esclusivamente lo Stipendio annuale e la **Quota di Ammortamento** (pari al costo storico diviso per gli anni di contratto stipulati).
+    """)
+    st.info("""**Esempio Pratico: Acquisizione**  
+    La società si aggiudica il *Calciatore X* per **40 milioni**, siglando un contratto quadriennale (4 anni).
+    * **Impatto sulla Cassa:** Decremento immediato di 40 milioni.
+    * **Impatto a Bilancio (per ogni anno):** Iscrizione nei Costi di **10 milioni** di ammortamento (40 / 4) e di **3.0 milioni** di stipendio.""")
+    
+    st.markdown("""
+    ### 4.2 Acquisti in Sessione Invernale (Gennaio)
+    Le operazioni di mercato concluse durante la sessione di Gennaio sono soggette a un trattamento contabile specifico, volto a riflettere l'utilizzo del calciatore per il solo girone di ritorno (6 mesi).
+    1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
+    2. **Impatto a Bilancio (Pro-quota):** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza.
+    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza.
+    4. **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
+    
+    ### 4.3 Cessione a Titolo Definitivo e Rilevazione di Plusvalenze/Minusvalenze
+    Il **Valore Residuo** di un calciatore è il valore patrimoniale netto del cartellino, calcolato sottraendo dal costo storico gli ammortamenti già contabilizzati negli esercizi precedenti. La cessione di un tesserato genera:
+    1. **Sotto il profilo della Liquidità (Cassa):** Accredito istantaneo del corrispettivo pattuito per la vendita.
+    2. **Sotto il profilo Economico (Bilancio):** L'interruzione degli oneri futuri (ammortamento e stipendio non ancora maturati) e la rilevazione nel Bilancio dell'anno in corso di una **Plusvalenza** (se il prezzo di vendita è superiore al Valore Residuo) o di una **Minusvalenza** (se il prezzo di vendita è inferiore al Valore Residuo).
+    """)
+    st.info("""**Esempio Pratico: Cessione**  
+    Il *Calciatore X* (costo storico 40M per 4 anni) è ceduto al termine del secondo anno. L'ammortamento cumulato è pari a 20M. Il suo **Valore Residuo è pari a 20 milioni**. La cessione avviene per **35 milioni**.
+    * **Impatto sulla Cassa:** Incremento immediato di 35 milioni.
+    * **Impatto a Bilancio:** Iscrizione nei Ricavi di una **Plusvalenza pari a 15 milioni** (35 - 20). Annullamento degli oneri per gli esercizi futuri.""")
+
+    st.markdown("""
+    ### 4.4 Risoluzione Anticipata e Scadenza Naturale del Contratto
+    L'interruzione anticipata del vincolo contrattuale senza contropartita economica (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
+    * **Impatto sulla Cassa:** Nessun introito (variazione nulla).
+    * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo.
+
+    **Scadenza Naturale del Vincolo (Parametro Zero):**  
+    Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
+
+    ### 4.5 Trasferimenti a Titolo Temporaneo (Prestiti)
+    Le società hanno facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: **prestito secco**, **prestito con diritto di riscatto** e **prestito con obbligo di riscatto** (subordinato o meno al verificarsi di determinate condizioni sportive).
+
+    **Prestito Oneroso e Impatto Contabile Immediato:**  
+    Le società possono pattuire un corrispettivo in denaro per l'affitto temporaneo del tesserato (Prestito Oneroso). L'eventuale onere pattuito genera un impatto istantaneo:
+    * **Cassa:** L'importo viene detratto immediatamente dalla Liquidità della società acquirente e versato sul conto della società cedente.
+    * **Bilancio:** Al fine di garantire il Fair Play dell'esercizio in corso, l'importo costituisce per la società cedente una **Plusvalenza** da iscrivere nei Ricavi, e per la società acquirente una **Minusvalenza** (costo di locazione) da iscrivere negli Oneri d'esercizio.
+
+    **Ammortamenti e Oneri Salariali:**  
+    La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
+    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio d'Esercizio alla voce Costi della Produzione.
+    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a **libera contrattazione** tra le parti. Le società possono concordare qualsivoglia ripartizione percentuale (es. 50% e 50%, 100% a carico della cessionaria, 100% a carico della cedente). Le quote proporzionali così pattuite andranno obbligatoriamente iscritte alla voce "Monte Ingaggi" dei rispettivi Bilanci d'Esercizio.
+
+    **Esercizio del Riscatto:**  
+    Qualora venga esercitato il diritto di riscatto, o al maturare delle condizioni per l'obbligo di riscatto, l'operazione si converte in una **Cessione a Titolo Definitivo** a tutti gli effetti legali e contabili. A far data dall'effettiva esecuzione contabile del riscatto:
+    1. La società cedente incassa il corrispettivo pattuito nella Liquidità e calcola l'eventuale Plusvalenza o Minusvalenza, confrontando il prezzo di riscatto con il Valore Residuo del tesserato in quel preciso momento patrimoniale.
+    2. La società acquirente detrae l'importo dalla propria Liquidità, subentra nella titolarità del cartellino assumendosi il 100% degli oneri salariali futuri e avvia un nuovo piano di ammortamento basato sul costo del riscatto e sulla durata del nuovo contratto stipulato.
+
+    ### 4.6 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
+    Le società hanno facoltà di prolungare il vincolo contrattuale di un proprio tesserato prima della naturale scadenza. La sottoscrizione di un rinnovo produce due effetti contabili immediati sul Bilancio d'Esercizio:
+    1. **Adeguamento Salariale:** Lo stipendio annuale del tesserato subisce un incremento obbligatorio pari al +15% rispetto al compenso attualmente in essere.
+    2. **Rimodulazione dell'Ammortamento:** Il Valore Residuo del calciatore, calcolato al momento del rinnovo, costituisce la nuova base patrimoniale e viene ripartito ("spalmato") sulla nuova durata contrattuale pattuita (massimo 3 anni aggiuntivi). La nuova **Quota di Ammortamento annuale** sarà pertanto ricalcolata al ribasso, dividendo il Valore Residuo per i nuovi anni di contratto. Contestualmente, il conteggio degli "anni trascorsi" si azzera.
+    """)
+    st.info("""**Esempio Pratico: Rinnovo Contrattuale**  
+    Il *Calciatore X* percepisce uno stipendio di 1.5M e, a seguito degli ammortamenti pregressi, ha un Valore Residuo di **15 milioni**. La società decide di rinnovare il contratto per ulteriori **3 anni**.
+    * **Nuovo Stipendio:** Incremento del 15% su 1.5M $\\rightarrow$ Nuovo stipendio pari a **1.725 milioni** annui.
+    * **Nuovo Ammortamento:** I 15 milioni di Valore Residuo vengono divisi per i 3 nuovi anni $\\rightarrow$ Nuova quota di ammortamento pari a **5 milioni** annui.
+    * **Impatto a Bilancio:** A fronte di un lieve aumento del monte ingaggi, la società abbassa notevolmente i costi di ammortamento correnti, alleggerendo il bilancio ed evitando minusvalenze future.""")
+
+    st.markdown("""
+    ### 4.7 Efficacia Temporale degli Accordi (Sistema di Prenotazione)
+    Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti/obblighi di riscatto e i rinnovi contrattuali operati a stagione in corso agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
+
+    La formalizzazione di tali operazioni tramite il gestionale **non produce alcun effetto immediato** sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile (transito del denaro in Cassa, calcolo delle Plusvalenze/Minusvalenze da riscatto, incremento salariale del +15% da rinnovo e ricalcolo dei nuovi ammortamenti) viene posticipata e resa effettiva **esclusivamente all'atto della Chiusura Fiscale di fine stagione**, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
+    """)
+
+    st.divider()
+
+    # SECTION 5
+    st.subheader("5. Competizioni Ufficiali e Premi Sportivi")
+    st.markdown("""
+    Al termine della stagione sportiva, la Direzione provvede all'erogazione dei corrispettivi in denaro maturati in base ai risultati conseguiti nelle tre competizioni ufficiali previste dal calendario. Tali somme vengono erogate istantaneamente nella Cassa e contribuiscono ad accrescere la voce "Premi Sportivi" nel Bilancio d'Esercizio in vista della chiusura fiscale.
+
+    ### 5.1 Campionato di Lega
+    Al fine di garantire la competitività, l'equilibrio della Lega nel lungo periodo e agevolare la ricostruzione finanziaria, l'ammontare dei premi di Campionato (totale 287 milioni) è distribuito seguendo un criterio che privilegia i posizionamenti inferiori:
+    * **1ª Classificata:** 35 milioni
+    * **2ª Classificata:** 36 milioni
+    * **3ª Classificata:** 38 milioni
+    * **4ª Classificata:** 40 milioni
+    * **5ª Classificata:** 43 milioni
+    * **6ª Classificata:** 45 milioni
+    * **7ª Classificata:** 48 milioni
+    * **8ª Classificata:** 50 milioni
+    
+    ### 5.2 Coppa Italia
+    La competizione nazionale parallela al campionato si articola in tre turni a eliminazione diretta, disputati interamente in **gara secca**.
+    
+    **Calendario Ufficiale:**
+    * **Quarti di Finale:** 15ª Giornata di Campionato
+    * **Semifinali:** 25ª Giornata di Campionato
+    * **Finale:** 35ª Giornata di Campionato
+    
+    **Proventi Sportivi:**
+    * **1ª Classificata (Vincitrice):** 25 milioni
+    * **2ª Classificata (Finalista):** 15 milioni
+    * **3ª e 4ª Classificata (Semifinaliste):** 5 milioni
+
+    ### 5.3 Champions League
+    La massima competizione si struttura in una fase iniziale composta da **due gironi all'italiana da 4 squadre** (con incontri di andata e ritorno), seguita da Semifinali (con incontri di andata e ritorno) e da una Finale in gara secca in campo neutro.
+    
+    **Calendario Ufficiale:**
+    * **Fase a Gironi (Andata e Ritorno):** 4ª, 8ª, 12ª, 16ª, 20ª e 24ª Giornata di Campionato
+    * **Semifinali (Andata e Ritorno):** 28ª e 32ª Giornata di Campionato
+    * **Finale:** 36ª Giornata di Campionato
+    
+    **Proventi Sportivi (Meritocratici):**
+    * **1ª Classificata (Vincitrice):** 35 milioni
+    * **2ª Classificata (Finalista):** 25 milioni
+    * **3ª e 4ª Classificata (Semifinaliste):** 15 milioni
+    """)
+
+    st.divider()
+
+    # SECTION 6
+    st.subheader("6. Redazione e Chiusura del Bilancio d'Esercizio")
+    st.markdown("""
+    Al termine di ciascuna stagione sportiva, prima dell'avvio della sessione di mercato successiva, le società hanno l'obbligo di redigere il Bilancio d'Esercizio, determinando il differenziale tra il Valore della Produzione e i Costi della Produzione. Questo è l'atto formale che chiude l'anno sportivo.
+    
+    ### 6.1 Valore della Produzione (Ricavi d'Esercizio)
+    Concorrono alla formazione dei ricavi le seguenti voci:
+    * **Premi Sportivi:** Introiti accreditati a bilancio a seguito dei piazzamenti finali nelle competizioni ufficiali.
+    * **Proventi da Sponsorizzazione:** Quota erogata all'apertura dell'esercizio (pari a 30 milioni fissi per tutti durante la prima stagione sportiva di fondazione; dalla seconda stagione in poi, determinata con criterio meritocratico in base alla classifica finale dell'anno precedente).
+    * **Proventi da Stadio (Ticketing):** Somma matematica dei ricavi lordi per singola partita disputata nell'impianto di proprietà.
+    * **Plusvalenze Patrimoniali:** Utili generati dalla cessione dei diritti sulle prestazioni sportive.
+    * **Nuovo Capitale:** Iniezione di liquidità garantita dalla Lega (pari a 50 milioni) iscritta a Bilancio all'apertura di ogni nuovo esercizio contabile **(esclusivamente a partire dalla seconda stagione)**.
+
+    ### 6.2 Costi della Produzione (Oneri d'Esercizio)
+    Concorrono alla formazione dei costi le seguenti voci:
+    * **Quote di Ammortamento:** Somma delle quote di competenza per l'esercizio in corso di tutti i tesserati (inclusi i giocatori ceduti in prestito temporaneo).
+    * **Monte Ingaggi:** Ammontare complessivo delle retribuzioni fisse spettanti ai tesserati nell'esercizio in corso, al netto delle decurtazioni per i tesserati in prestito.
+    * **Oneri di Gestione Infrastrutture:** Costi di mantenimento e operatività dell'impianto sportivo.
+    * **Minusvalenze Patrimoniali:** Perdite d'esercizio generate da svincoli o cessioni sotto il Valore Residuo.
+
+    ### 6.3 Determinazione del Risultato d'Esercizio
+    Il risultato d'esercizio si determina sottraendo il totale dei Costi della Produzione dal totale del Valore della Produzione (Ricavi - Costi).
+
+    ### 6.4 Flussi di Cassa e Ripianamento Perdite (Fair Play Finanziario)
+    Al termine della stagione sportiva, all'atto formale della Chiusura Fiscale, il gestionale applica una procedura automatica e sequenziale in 4 fasi per riconciliare la Cassa reale con il Bilancio d'Esercizio:
+    
+    1. **Pagamento degli Oneri Correnti:** Vengono materialmente prelevati dalla Cassa i fondi necessari al pagamento fisico degli stipendi maturati nell'anno (Monte Ingaggi) e dei costi di gestione dello Stadio.
+    2. **Verifica del Fair Play Finanziario:** Viene calcolato il Risultato d'Esercizio del Bilancio (Ricavi - Costi).
+       * 🟢 **Risultato Positivo (Utile d'Esercizio):** La società ha rispettato i parametri economici. Non avviene alcun prelievo aggiuntivo. (L'utile non si somma alla Cassa in quanto gli introiti dei ricavi sono già stati percepiti nel corso dell'anno).
+       * 🔴 **Risultato Negativo (Perdita d'Esercizio):** La società ha violato i parametri UEFA vivendo al di sopra delle proprie possibilità. Scatta l'obbligo di ricapitalizzazione immediata: **un importo pari all'intera Perdita certificata viene prelevato coattivamente e sottratto dalla Cassa societaria** per ripianare il debito.
+    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi prenotati e gli svincoli a parametro zero.
+    4. **Apertura del Nuovo Esercizio e Iniezioni di Capitale:** (Fase attiva a partire dalla seconda stagione). Il sistema provvede a immettere **nuova liquidità in Cassa**: accredita istantaneamente i **50 milioni** del nuovo capitale, unitamente ai **Proventi dello Sponsor** maturati grazie alla classifica dell'anno appena concluso. Le stesse identiche voci vengono iscritte nei nuovi Ricavi a Bilancio, fornendo alle società la base operativa su cui fondare il mercato della nuova stagione.
+    """)
