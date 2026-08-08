@@ -10,8 +10,13 @@ st.set_page_config(page_title="Osei Football League", layout="wide", initial_sid
 # --- CONNESSIONE DATABASE FIRESTORE ---
 @st.cache_resource
 def get_db_connection():
-    # Legge la chiave segreta dalla cassaforte di Streamlit
-    key_dict = json.loads(st.secrets["FIREBASE_KEY"])
+    # Legge la chiave segreta dalla cassaforte di Streamlit, usando il nuovo formato [firebase]
+    key_dict = json.loads(st.secrets["firebase"]["my_project_settings"])
+    
+    # Questo è l'unico "trucco" che serve per le chiavi in ambiente cloud
+    if "\\n" in key_dict["private_key"]:
+        key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+        
     creds = service_account.Credentials.from_service_account_info(key_dict)
     return firestore.Client(credentials=creds)
 
@@ -82,7 +87,6 @@ def genera_calendario_berger(squadre_lista):
                 full_calendar.append(new_md)
     return full_calendar
 
-# Togliamo i percorsi dei vecchi file e usiamo solo i nomi per il Cloud
 DB_PATH = "squadre"
 CAL_PATH = "calendario"
 COPPE_PATH = "coppe"
