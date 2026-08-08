@@ -91,16 +91,6 @@ DB_PATH = "squadre"
 CAL_PATH = "calendario"
 COPPE_PATH = "coppe"
 
-# Caricamento Dati in tempo reale dal Cloud!
-db = load_data(DB_PATH)
-calendario = load_data(CAL_PATH)
-coppe = load_data(COPPE_PATH)
-if not coppe: coppe = init_coppe()
-
-for sq in db.values():
-    if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
-        sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
-
 # --- GESTIONE ACCESSO ADMIN ---
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
@@ -134,6 +124,28 @@ menu = st.sidebar.radio("Navigazione", [
     "8. Chiusura Fiscale Bilancio",
     "9. Regolamento Ufficiale"
 ])
+
+# ==========================================
+# --- CARICAMENTO DATI OTTIMIZZATO (CLOUD) ---
+# ==========================================
+# Impostiamo variabili vuote di default
+db, calendario, coppe = {}, [], {}
+
+# Scarica le SQUADRE (servono in quasi tutte le pagine, tranne il Regolamento)
+if menu != "9. Regolamento Ufficiale":
+    db = load_data(DB_PATH)
+    for sq in db.values():
+        if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
+            sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
+
+# Scarica il CALENDARIO (serve solo in queste due pagine)
+if menu in ["5. Calendario & Partite", "6. Classifica Campionato"]:
+    calendario = load_data(CAL_PATH)
+
+# Scarica le COPPE (servono solo in queste due pagine)
+if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)"]:
+    coppe = load_data(COPPE_PATH)
+    if not coppe: coppe = init_coppe()
 
 # ==========================================
 # 1. SETUP SOCIETÀ
