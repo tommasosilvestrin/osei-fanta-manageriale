@@ -393,21 +393,24 @@ elif menu == "3. Mercato (Definitivi)":
                     g_rinnovo = st.selectbox("Seleziona da Rinnovare", [g['nome'] for g in squadra['rosa']], key="rinnovo")
                     g_obj_r = next(g for g in squadra['rosa'] if g['nome'] == g_rinnovo)
                     
-                    if "rinnovo_prenotato" in g_obj_r:
-                        st.warning(f"⏳ Attenzione: {g_obj_r['nome']} ha già firmato un pre-accordo di rinnovo di {g_obj_r['rinnovo_prenotato']['nuovi_anni']} anni per la prossima stagione.")
-                    
-                    st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
-                    st.info("📝 Il rinnovo prenota un prolungamento che scatterà DALLA PROSSIMA STAGIONE. Quest'anno il suo impatto a bilancio non cambia. Dal prossimo anno lo stipendio salirà del 15%.")
-                    
-                    nuovi_anni = st.slider("Nuovi Anni di Contratto dalla prossima stagione (Max 3)", 1, 3, 2, key="anni_rinnovo")
-                    stipendio_futuro = g_obj_r['stipendio'] * 1.15
-                    st.write(f"🔄 **Proiezione Prossimo Anno:** Stipendio {stipendio_futuro:.3f} M")
-                    
-                    if st.button("Firma Pre-Contratto per l'anno prossimo"):
-                        g_obj_r['rinnovo_prenotato'] = {"nuovi_anni": nuovi_anni}
-                        save_data(db, DB_PATH)
-                        st.success(f"Contratto di {g_obj_r['nome']} prenotato! L'accordo entrerà in vigore alla chiusura del bilancio.")
-                        st.rerun()
+                    if g_obj_r.get("prestato_a"):
+                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è attualmente in prestito a {g_obj_r['prestato_a']}. Richiamalo anticipatamente dal prestito per poter negoziare il rinnovo.")
+                    else:
+                        if "rinnovo_prenotato" in g_obj_r:
+                            st.warning(f"⏳ Attenzione: {g_obj_r['nome']} ha già firmato un pre-accordo di rinnovo di {g_obj_r['rinnovo_prenotato']['nuovi_anni']} anni per la prossima stagione.")
+                        
+                        st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
+                        st.info("📝 Il rinnovo prenota un prolungamento che scatterà DALLA PROSSIMA STAGIONE. Quest'anno il suo impatto a bilancio non cambia. Dal prossimo anno lo stipendio salirà del 15%.")
+                        
+                        nuovi_anni = st.slider("Nuovi Anni di Contratto dalla prossima stagione (Max 3)", 1, 3, 2, key="anni_rinnovo")
+                        stipendio_futuro = g_obj_r['stipendio'] * 1.15
+                        st.write(f"🔄 **Proiezione Prossimo Anno:** Stipendio {stipendio_futuro:.3f} M")
+                        
+                        if st.button("Firma Pre-Contratto per l'anno prossimo"):
+                            g_obj_r['rinnovo_prenotato'] = {"nuovi_anni": nuovi_anni}
+                            save_data(db, DB_PATH)
+                            st.success(f"Contratto di {g_obj_r['nome']} prenotato! L'accordo entrerà in vigore alla chiusura del bilancio.")
+                            st.rerun()
 
 # ==========================================
 # 4. MERCATO (PRESTITI)
@@ -444,31 +447,34 @@ elif menu == "4. Mercato (Prestiti)":
                     cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
                 
                 if st.button("Ufficializza Prestito"):
-                    if costo_prestito > db[sq_acquirente]['cassa']:
+                    anni_rimanenti = g_obj['anni_contratto'] - g_obj['anni_trascorsi']
+                    
+                    if durata_prestito >= anni_rimanenti:
+                        st.error(f"⚠️ Impossibile prestare. Il giocatore ha solo {anni_rimanenti} anno/i di contratto residui. Per un prestito di {durata_prestito} anni, servono almeno {durata_prestito + 1} anni di contratto (rinnovalo prima di cederlo!).")
+                    elif costo_prestito > db[sq_acquirente]['cassa']:
                         st.error("Cassa acquirente insufficiente per il prestito oneroso!")
+                    elif len(db[sq_acquirente]['rosa']) >= 25: 
+                        st.error("Rosa acquirente piena!")
                     else:
-                        if len(db[sq_acquirente]['rosa']) >= 25: st.error("Rosa acquirente piena!")
-                        elif costo_prestito > db[sq_acquirente]['cassa']: st.error("Cassa acquirente insufficiente per il prestito oneroso!")
-                        else:
-                            g_acq = g_obj.copy()
-                            g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
-                            g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                            g_acq['anni_prestito_rimanenti'] = durata_prestito
-                            db[sq_acquirente]['rosa'].append(g_acq)
+                        g_acq = g_obj.copy()
+                        g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
+                        g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                        g_acq['anni_prestito_rimanenti'] = durata_prestito
+                        db[sq_acquirente]['rosa'].append(g_acq)
+                        
+                        g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
+                        g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                        g_obj['anni_prestito_rimanenti'] = durata_prestito
+                        
+                        if costo_prestito > 0:
+                            db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
+                            db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
+                            db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
+                            db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
                             
-                            g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
-                            g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                            g_obj['anni_prestito_rimanenti'] = durata_prestito
-                            
-                            if costo_prestito > 0:
-                                db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
-                                db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
-                                db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
-                                db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
-                                
-                            save_data(db, DB_PATH)
-                            st.success(f"Prestito di {durata_prestito} anno/i registrato con successo!")
-                            st.rerun()
+                        save_data(db, DB_PATH)
+                        st.success(f"Prestito di {durata_prestito} anno/i registrato con successo!")
+                        st.rerun()
                         
             st.divider()
             st.subheader("🛒 Esercita Riscatto")
@@ -499,6 +505,28 @@ elif menu == "4. Mercato (Prestiti)":
                         save_data(db, DB_PATH)
                         st.success("Riscatto prenotato! L'operazione sarà contabilizzata nel bilancio della prossima stagione.")
                         st.rerun()
+
+            st.divider()
+            st.subheader("❌ Risoluzione Anticipata Prestito")
+            if in_prestito:
+                g_risoluzione = st.selectbox("Calciatore da far rientrare alla base", [g['nome'] for g in in_prestito], key="risoluzione")
+                st.info("Interrompendo il prestito, il giocatore tornerà immediatamente attivo nella rosa della società proprietaria e l'eventuale accordo di riscatto verrà annullato.")
+                
+                if st.button("Interrompi Prestito Subito"):
+                    # 1. Rimuoviamo il giocatore dalla rosa di chi l'aveva ricevuto
+                    g_acq_obj = next(g for g in db[sq_acquirente]['rosa'] if g['nome'] == g_risoluzione)
+                    db[sq_acquirente]['rosa'].remove(g_acq_obj)
+                    
+                    # 2. Ripuliamo tutti i vincoli di prestito dalla scheda originale della squadra madre
+                    g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_risoluzione)
+                    for key in ['prestato_a', 'perc_stipendio_pagato', 'accordo_riscatto', 'anni_prestito_rimanenti', 'riscatto_prenotato']:
+                        g_ced_obj.pop(key, None)
+                        
+                    save_data(db, DB_PATH)
+                    st.success(f"Accordo interrotto! {g_risoluzione} è tornato alla società cedente.")
+                    st.rerun()
+            else:
+                st.write("Nessun giocatore in prestito tra queste due squadre.")
 
 # ==========================================
 # 5. CALENDARIO E PARTITE
@@ -871,7 +899,13 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                         if "riscatto_prenotato" in g:
                             prezzo_r = g['riscatto_prenotato']['cifra']
                             dati['cassa'] += prezzo_r
-                            diff = prezzo_r - g['valore_residuo']
+                            
+                            # --- LA TUA INTUIZIONE CONTABILE ---
+                            # Togliamo i 5M di ammortamento per trovare il vero VR (10M)
+                            amm = g['ammortamento_annuo']
+                            vero_valore_residuo = max(0, g['valore_residuo'] - amm)
+                            
+                            diff = prezzo_r - vero_valore_residuo
                             if diff > 0: dati['bilancio']['ricavi']['plusvalenze'] += diff
                             else: dati['bilancio']['costi']['minusvalenze'] += abs(diff)
                         else:
@@ -1090,35 +1124,36 @@ elif menu == "9. Regolamento Ufficiale":
 
     st.markdown("""
     ### 4.4 Trasferimenti a Titolo Temporaneo (Prestiti)
-    Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: **prestito secco**, **prestito con diritto di riscatto** e **prestito con obbligo di riscatto** (subordinato o meno al verificarsi di determinate condizioni sportive).
+    Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: prestito secco, prestito con diritto di riscatto e prestito con obbligo di riscatto.
 
-    **Prestito Oneroso e Impatto Contabile Immediato:**  
-    Le società possono pattuire un corrispettivo in denaro per l'affitto temporaneo del tesserato (Prestito Oneroso). L'eventuale onere pattuito genera un impatto istantaneo:
-    * **Cassa:** L'importo viene detratto immediatamente dalla Liquidità della società acquirente e versato sul conto della società cedente.
-    * **Bilancio:** Al fine di garantire il Fair Play dell'esercizio in corso, l'importo costituisce per la società cedente una **Plusvalenza** da iscrivere nei Ricavi, e per la società acquirente una **Minusvalenza** (costo di locazione) da iscrivere negli Oneri d'esercizio.
+    **Vincoli per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, **è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso**. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
 
-    **Ammortamenti e Oneri Salariali:**  
-    La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
-    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio d'Esercizio alla voce Costi della Produzione.
-    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a **libera contrattazione** tra le parti. Le società possono concordare qualsivoglia ripartizione percentuale (es. 50% e 50%, 100% a carico della cessionaria, 100% a carico della cedente). Le quote proporzionali così pattuite andranno obbligatoriamente iscritte alla voce "Monte Ingaggi" dei rispettivi Bilanci d'Esercizio.
+    **Prestito Oneroso e Impatto Contabile Immediato:** L'eventuale onere in denaro pattuito per l'affitto temporaneo genera un impatto istantaneo: l'importo viene detratto immediatamente dalla Liquidità dell'acquirente e versato alla cedente. A livello di Bilancio, per l'esercizio in corso, l'importo costituisce una **Plusvalenza** per la cedente e una **Minusvalenza** (costo di locazione) per l'acquirente.
 
-    **Esercizio del Riscatto:**  
-    Qualora venga esercitato il diritto di riscatto, o al maturare delle condizioni per l'obbligo di riscatto, l'operazione si converte in una **Cessione a Titolo Definitivo** a tutti gli effetti legali e contabili. A far data dall'effettiva esecuzione contabile del riscatto:
-    1. La società cedente incassa il corrispettivo pattuito nella Liquidità e calcola l'eventuale Plusvalenza o Minusvalenza, confrontando il prezzo di riscatto con il Valore Residuo del tesserato in quel preciso momento patrimoniale.
-    2. La società acquirente detrae l'importo dalla propria Liquidità, subentra nella titolarità del cartellino assumendosi il 100% degli oneri salariali futuri e avvia un nuovo piano di ammortamento basato sul costo del riscatto e sulla durata del nuovo contratto stipulato.
+    **Ammortamenti e Oneri Salariali durante il prestito:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
+    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino).
+    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a libera contrattazione (es. 50% e 50%, 100% all'acquirente, ecc.). Le quote proporzionali pattuite si rifletteranno sul "Monte Ingaggi" dei rispettivi Bilanci.
+
+    **Risoluzione Anticipata del Prestito:** Le due società coinvolte possono accordarsi in qualsiasi momento per l'interruzione anticipata del prestito. Tramite l'apposita funzione del gestionale, il calciatore farà rientro immediato nella rosa attiva della società madre. La risoluzione anticipata annulla in automatico qualsiasi precedente accordo relativo a diritti o obblighi di riscatto.
+
+    **Esercizio del Riscatto e Dinamica Contabile:** Qualora venga esercitato il riscatto (prenotabile durante l'anno), l'operazione si converte in una Cessione a Titolo Definitivo all'atto della **Chiusura Fiscale** di fine stagione.
+    1. Il sistema provvede innanzitutto a scalare l'ultima quota di ammortamento a carico della società cedente per la stagione appena conclusa.
+    2. La Plusvalenza o Minusvalenza per la cedente viene quindi calcolata confrontando il prezzo di riscatto pattuito con il **nuovo Valore Residuo aggiornato e deprezzato** in quel preciso momento.
+    3. La società acquirente detrae l'importo dalla Cassa, subentra nella titolarità assumendosi il 100% degli oneri futuri e avvia un nuovo piano di ammortamento.
 
     ### 4.5 Risoluzione Anticipata e Scadenza Naturale del Contratto
     L'interruzione anticipata del vincolo contrattuale (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
-    * **Impatto sulla Cassa:** Nessun introito (variazione nulla).
+    * **Impatto sulla Cassa:** Nessun introito.
     * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo.
 
-    **Scadenza Naturale del Vincolo (Parametro Zero):**  
-    Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
+    **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento è giunto a naturale esaurimento. La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale per gli esercizi futuri.
 
     ### 4.6 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
-    Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato prima della naturale scadenza. La sottoscrizione di un rinnovo produce due effetti contabili immediati sul Bilancio d'Esercizio:
+    Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato prima della naturale scadenza. **Tuttavia, è fatto assoluto divieto di negoziare o prenotare il rinnovo di un giocatore mentre quest'ultimo si trova in prestito presso un'altra società** (la società madre dovrà richiamarlo anticipatamente per potergli estendere il contratto).
+
+    La sottoscrizione di un rinnovo produce due effetti contabili:
     1. **Adeguamento Salariale:** Lo stipendio annuale del tesserato subisce un incremento obbligatorio pari al +15% rispetto al compenso attualmente in essere.
-    2. **Rimodulazione dell'Ammortamento:** Il Valore Residuo del calciatore, calcolato al momento del rinnovo, costituisce la nuova base patrimoniale e viene ripartito ("spalmato") sulla nuova durata contrattuale pattuita (massimo 3 anni aggiuntivi). La nuova **Quota di Ammortamento annuale** sarà pertanto ricalcolata al ribasso, dividendo il Valore Residuo per i nuovi anni di contratto. Contestualmente, il conteggio degli "anni trascorsi" si azzera.
+    2. **Rimodulazione dell'Ammortamento:** Il Valore Residuo del calciatore, calcolato al momento del rinnovo, viene ripartito ("spalmato") sulla nuova durata contrattuale pattuita (massimo 3 anni aggiuntivi). La nuova Quota di Ammortamento annuale sarà ricalcolata dividendo il Valore Residuo per i nuovi anni di contratto, e il conteggio degli "anni trascorsi" si azzera.
     """)
 
     # ESEMPIO 3 HTML
