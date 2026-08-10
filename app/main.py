@@ -58,11 +58,12 @@ def init_coppe():
         }
     }
 
-def genera_calendario_berger(squadre_lista):
+def genera_calendario_berger(squadre_lista, num_giornate):
     n = len(squadre_lista)
     squadre = list(squadre_lista)
     matchdays = []
     
+    # Genera il girone di base (7 giornate)
     for i in range(n - 1):
         matchday = []
         for j in range(n // 2):
@@ -74,17 +75,22 @@ def genera_calendario_berger(squadre_lista):
         matchdays.append(matchday)
         squadre.insert(1, squadre.pop())
         
+    # Costruisce il calendario fino al numero esatto di giornate richiesto
     full_calendar = []
-    for round_num in range(6): 
+    round_num = 0
+    while len(full_calendar) < num_giornate:
         for md in matchdays:
-            if len(full_calendar) < 38:
+            if len(full_calendar) < num_giornate:
                 new_md = []
                 for match in md:
+                    # Inverte casa/trasferta a ogni nuovo girone
                     if round_num % 2 == 1: 
                         new_md.append({"home": match["away"], "away": match["home"], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi_assegnati": False})
                     else: 
                         new_md.append({"home": match["home"], "away": match["away"], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi_assegnati": False})
                 full_calendar.append(new_md)
+        round_num += 1
+        
     return full_calendar
 
 DB_PATH = "squadre"
@@ -613,14 +619,20 @@ elif menu == "5. Calendario & Partite":
         st.error(f"Per generare il calendario servono 8 squadre. Attualmente ce ne sono {len(db)}.")
     else:
         if not calendario:
-            if st.button("🚀 Genera Calendario Ufficiale", type="primary"):
-                calendario = genera_calendario_berger(list(db.keys()))
+            c_giornate, c_btn = st.columns([1, 3])
+            num_g = c_giornate.number_input("Numero di Giornate", min_value=1, max_value=76, value=36)
+            
+            # Un po' di stile per allineare il bottone all'input
+            c_btn.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            
+            if c_btn.button("🚀 Genera Calendario Ufficiale", type="primary"):
+                calendario = genera_calendario_berger(list(db.keys()), num_g)
                 save_data(calendario, CAL_PATH)
-                st.success("Calendario generato con successo!")
+                st.success(f"Calendario di {num_g} giornate generato con successo!")
                 st.rerun()
         
         if calendario:
-            giornata_idx = st.selectbox("Seleziona Giornata", range(1, 39)) - 1
+            giornata_idx = st.selectbox("Seleziona Giornata", range(1, len(calendario) + 1)) - 1
             giornata_dati = calendario[giornata_idx]
             
             st.subheader(f"Partite Giornata {giornata_idx + 1}")
@@ -682,10 +694,18 @@ elif menu == "6. Classifica Campionato":
         st.dataframe(df_c.style.highlight_max(subset=['Punti'], color='lightgreen'), use_container_width=True)
         
         st.divider()
-        if st.button("Distribuisci Premi Campionato & Sponsor (Solo a fine anno)"):
+        if st.button("Distribuisci Premi Campionato, Sponsor & Conguagli (Solo a fine anno)"):
             squadre_ordinate = df_c.index.tolist()
             premi_sponsor = [50.0, 46.0, 42.0, 38.0, 35.0, 32.0, 30.0, 30.0]
             premi_campionato = [35.0, 36.0, 38.0, 40.0, 43.0, 45.0, 48.0, 50.0]
+            
+            # --- CONTEGGIO PARTITE IN CASA ---
+            partite_in_casa = {s: 0 for s in db.keys()}
+            for md in calendario:
+                for m in md:
+                    partite_in_casa[m["home"]] += 1
+            max_casa = max(partite_in_casa.values())
+            
             for pos, nome_sq in enumerate(squadre_ordinate):
                 team = db[nome_sq]
                 p_spons = premi_sponsor[pos]
@@ -696,11 +716,19 @@ elif menu == "6. Classifica Campionato":
                 team['bilancio']['ricavi']['premi_sportivi'] += p_camp
                 team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
                 
-                # 2. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
+                # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
+                diff_casa = max_casa - partite_in_casa[nome_sq]
+                if diff_casa > 0 and team['stadio']['livello']:
+                    conguaglio = diff_casa * team['stadio']['base']
+                    team['cassa'] = round(team['cassa'] + conguaglio, 2)
+                    team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
+                    team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
+                
+                # 3. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
                 team['sponsor_prenotato'] = p_spons
                 
             save_data(db, DB_PATH)
-            st.success("Premi Campionato erogati! I contratti Sponsor per l'anno prossimo sono stati prenotati.")
+            st.success("Premi Campionato erogati! Calcolati i conguagli per gli Stadi e prenotati gli Sponsor per il prossimo anno.")
 
 # ==========================================
 # 7. COPPE UFFICIALI
