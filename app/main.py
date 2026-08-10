@@ -22,7 +22,7 @@ def get_db_connection():
 
 firestore_db = get_db_connection()
 
-# --- FUNZIONI DATI E LOGICA (Modificate per il Cloud) ---
+# --- FUNZIONI DATI E LOGICA ---
 def load_data(doc_name):
     # Cerca il documento nel database Cloud
     doc_ref = firestore_db.collection("ofl_database").document(doc_name)
@@ -223,9 +223,15 @@ elif menu == "2. Dashboard & Rosa":
         for g in squadra['rosa']:
             amm = g['ammortamento_annuo']
             stip = g['stipendio']
+            
+            # Calcolo pro-quota per acquisti a Gennaio
             if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0:
                 amm /= 2
                 stip /= 2
+            # NUOVO: Calcolo pro-quota (50 e 50) per Rinnovi a Gennaio
+            elif g.get('rinnovato_a_gennaio') and g['anni_trascorsi'] == 0:
+                amm = (g['vecchio_amm_gennaio'] / 2) + (g['ammortamento_annuo'] / 2)
+                stip = (g['vecchio_stip_gennaio'] / 2) + (g['stipendio'] / 2)
                 
             if g.get("in_prestito_da"): tot_ingaggi += stip * (g['perc_stipendio_pagato'] / 100)
             elif g.get("prestato_a"):
@@ -278,16 +284,59 @@ elif menu == "2. Dashboard & Rosa":
             df_attiva = pd.DataFrame(rosa_attiva)
             colonne_visibili = ['nome', 'ruolo', 'anni_contratto', 'costo_acquisto', 'valore_residuo', 'ammortamento_annuo', 'stipendio']
             df_display = df_attiva[colonne_visibili].copy()
+            
             if 'in_prestito_da' in df_attiva.columns:
                 df_display['In Prestito Da'] = df_attiva['in_prestito_da']
-            st.dataframe(df_display, use_container_width=True)
+            
+            # --- ORDINAMENTO PER RUOLO ---
+            ordine_ruoli = ["Portiere", "Difensore", "Centrocampista", "Attaccante"]
+            df_display['ruolo'] = pd.Categorical(df_display['ruolo'], categories=ordine_ruoli, ordered=True)
+            df_display = df_display.sort_values(['ruolo', 'nome']) 
+            
+            # --- RINOMINA LE COLONNE ---
+            df_display.rename(columns={
+                'nome': 'Nome',
+                'ruolo': 'Ruolo',
+                'anni_contratto': 'Anni Contratto',
+                'costo_acquisto': 'Costo Acquisto (M)',
+                'valore_residuo': 'Valore Residuo (M)',
+                'ammortamento_annuo': 'Ammortamento (M)',
+                'stipendio': 'Stipendio (M)'
+            }, inplace=True)
+            
+            # --- TRUCCO DEFINITIVO: TRASFORMIAMO I NUMERI IN TESTO ---
+            df_display['Anni Contratto'] = df_display['Anni Contratto'].map('{:.0f}'.format)
+            df_display['Costo Acquisto (M)'] = df_display['Costo Acquisto (M)'].map('{:.2f}'.format)
+            df_display['Valore Residuo (M)'] = df_display['Valore Residuo (M)'].map('{:.2f}'.format)
+            df_display['Ammortamento (M)'] = df_display['Ammortamento (M)'].map('{:.2f}'.format)
+            df_display['Stipendio (M)'] = df_display['Stipendio (M)'].map('{:.2f}'.format)
+            
+            st.dataframe(df_display, hide_index=True, use_container_width=True)
             
         if rosa_fuori:
             st.subheader(f"✈️ Giocatori Ceduti in Prestito ({len(rosa_fuori)})")
             df_fuori = pd.DataFrame(rosa_fuori)
             df_fuori_disp = df_fuori[['nome', 'ruolo', 'prestato_a', 'valore_residuo', 'ammortamento_annuo']].copy()
-            df_fuori_disp.rename(columns={'prestato_a': 'In Prestito A'}, inplace=True)
-            st.dataframe(df_fuori_disp, use_container_width=True)
+            
+            # Ordiniamo anche i ceduti per ruolo
+            ordine_ruoli = ["Portiere", "Difensore", "Centrocampista", "Attaccante"]
+            df_fuori_disp['ruolo'] = pd.Categorical(df_fuori_disp['ruolo'], categories=ordine_ruoli, ordered=True)
+            df_fuori_disp = df_fuori_disp.sort_values(['ruolo', 'nome'])
+            
+            # --- RINOMINA LE COLONNE DEI CEDUTI ---
+            df_fuori_disp.rename(columns={
+                'nome': 'Nome',
+                'ruolo': 'Ruolo',
+                'prestato_a': 'In Prestito A',
+                'valore_residuo': 'Valore Residuo (M)',
+                'ammortamento_annuo': 'Ammortamento (M)'
+            }, inplace=True)
+            
+            # --- TRASFORMIAMO IN TESTO ANCHE I CEDUTI ---
+            df_fuori_disp['Valore Residuo (M)'] = df_fuori_disp['Valore Residuo (M)'].map('{:.2f}'.format)
+            df_fuori_disp['Ammortamento (M)'] = df_fuori_disp['Ammortamento (M)'].map('{:.2f}'.format)
+            
+            st.dataframe(df_fuori_disp, hide_index=True, use_container_width=True)
 
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
@@ -351,42 +400,48 @@ elif menu == "3. Mercato (Definitivi)":
                     g_vendita = st.selectbox("Seleziona da Vendere", [g['nome'] for g in squadra['rosa']], key="vendita")
                     g_obj = next(g for g in squadra['rosa'] if g['nome'] == g_vendita)
                     
-                    sessione_ven = st.radio("Sessione Cessione", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Mezza Stagione)"], horizontal=True, key="sess_ven")
-                    val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2) if "Invernale" in sessione_ven else g_obj['valore_residuo']
-                    st.write(f"Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
-                    
-                    prezzo_v = st.number_input("Prezzo di Vendita", min_value=0.0, step=1.0)
-                    if st.button("Vendi Definitivamente"):
-                        if "Invernale" in sessione_ven:
-                            squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
+                    if g_obj.get("prestato_a"):
+                        st.error(f"❌ Impossibile vendere. {g_obj['nome']} è attualmente in prestito a {g_obj['prestato_a']}. Interrompi il prestito dal Menu 4 prima di cederlo a titolo definitivo.")
+                    else:
+                        sessione_ven = st.radio("Sessione Cessione", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Mezza Stagione)"], horizontal=True, key="sess_ven")
+                        val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2) if "Invernale" in sessione_ven else g_obj['valore_residuo']
+                        st.write(f"Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
                         
-                        diff = prezzo_v - val_res_effettivo
-                        squadra['cassa'] = round(squadra['cassa'] + prezzo_v, 2)
-                        if diff > 0: squadra['bilancio']['ricavi']['plusvalenze'] += diff
-                        else: squadra['bilancio']['costi']['minusvalenze'] += abs(diff)
-                        
-                        squadra['rosa'].remove(g_obj)
-                        save_data(db, DB_PATH)
-                        st.rerun()
+                        prezzo_v = st.number_input("Prezzo di Vendita", min_value=0.0, step=1.0)
+                        if st.button("Vendi Definitivamente"):
+                            if "Invernale" in sessione_ven:
+                                squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
+                            
+                            diff = prezzo_v - val_res_effettivo
+                            squadra['cassa'] = round(squadra['cassa'] + prezzo_v, 2)
+                            if diff > 0: squadra['bilancio']['ricavi']['plusvalenze'] += diff
+                            else: squadra['bilancio']['costi']['minusvalenze'] += abs(diff)
+                            
+                            squadra['rosa'].remove(g_obj)
+                            save_data(db, DB_PATH)
+                            st.rerun()
                         
             with t3:
                 if squadra['rosa']:
                     g_svincolo = st.selectbox("Seleziona da Svincolare", [g['nome'] for g in squadra['rosa']], key="svincolo")
                     g_obj_s = next(g for g in squadra['rosa'] if g['nome'] == g_svincolo)
                     
-                    sessione_svin = st.radio("Sessione Svincolo", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_svin")
-                    val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2) if "Invernale" in sessione_svin else g_obj_s['valore_residuo']
-                    st.error(f"Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
-                    
-                    if st.button("Svincola Subito"):
-                        if "Invernale" in sessione_svin:
-                            squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
+                    if g_obj_s.get("prestato_a"):
+                        st.error(f"❌ Impossibile svincolare. {g_obj_s['nome']} è attualmente in prestito a {g_obj_s['prestato_a']}. Interrompi il prestito dal Menu 4 prima di stracciare il contratto.")
+                    else:
+                        sessione_svin = st.radio("Sessione Svincolo", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_svin")
+                        val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2) if "Invernale" in sessione_svin else g_obj_s['valore_residuo']
+                        st.error(f"Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
                         
-                        squadra['bilancio']['costi']['minusvalenze'] += val_res_effettivo_s
-                        squadra['rosa'].remove(g_obj_s)
-                        save_data(db, DB_PATH)
-                        st.success("Svincolato.")
-                        st.rerun()
+                        if st.button("Svincola Subito"):
+                            if "Invernale" in sessione_svin:
+                                squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
+                            
+                            squadra['bilancio']['costi']['minusvalenze'] += val_res_effettivo_s
+                            squadra['rosa'].remove(g_obj_s)
+                            save_data(db, DB_PATH)
+                            st.success("Svincolato.")
+                            st.rerun()
                         
             with t4:
                 if squadra['rosa']:
@@ -394,22 +449,43 @@ elif menu == "3. Mercato (Definitivi)":
                     g_obj_r = next(g for g in squadra['rosa'] if g['nome'] == g_rinnovo)
                     
                     if g_obj_r.get("prestato_a"):
-                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è attualmente in prestito a {g_obj_r['prestato_a']}. Richiamalo anticipatamente dal prestito per poter negoziare il rinnovo.")
+                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è attualmente in prestito. Richiamalo anticipatamente dal prestito per poter negoziare il rinnovo.")
                     else:
-                        if "rinnovo_prenotato" in g_obj_r:
-                            st.warning(f"⏳ Attenzione: {g_obj_r['nome']} ha già firmato un pre-accordo di rinnovo di {g_obj_r['rinnovo_prenotato']['nuovi_anni']} anni per la prossima stagione.")
+                        sessione_rin = st.radio("Quando avviene il rinnovo?", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Metà Stagione)"], horizontal=True)
+                        is_gen_rin = "Invernale" in sessione_rin
                         
                         st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
-                        st.info("📝 Il rinnovo prenota un prolungamento che scatterà DALLA PROSSIMA STAGIONE. Quest'anno il suo impatto a bilancio non cambia. Dal prossimo anno lo stipendio salirà del 15%.")
                         
-                        nuovi_anni = st.slider("Nuovi Anni di Contratto dalla prossima stagione (Max 3)", 1, 3, 2, key="anni_rinnovo")
-                        stipendio_futuro = g_obj_r['stipendio'] * 1.15
-                        st.write(f"🔄 **Proiezione Prossimo Anno:** Stipendio {stipendio_futuro:.3f} M")
+                        nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 5)", 1, 5, 3, key="anni_rinnovo")
+                        nuovo_stipendio = g_obj_r['stipendio'] * 1.15
                         
-                        if st.button("Firma Pre-Contratto per l'anno prossimo"):
-                            g_obj_r['rinnovo_prenotato'] = {"nuovi_anni": nuovi_anni}
+                        if is_gen_rin:
+                            st.info("❄️ **Rinnovo Invernale:** Il sistema calcolerà l'impatto sul bilancio di quest'anno in modalità pro-quota (50% vecchio contratto, 50% nuovo contratto).")
+                            vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
+                            nuovo_amm = vr_a_gennaio / nuovi_anni if nuovi_anni > 0 else 0
+                        else:
+                            st.info("☀️ **Rinnovo Estivo:** Il nuovo contratto si applica istantaneamente all'intera stagione in corso.")
+                            nuovo_amm = g_obj_r['valore_residuo'] / nuovi_anni if nuovi_anni > 0 else 0
+                            
+                        st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
+                        
+                        if st.button("Firma Rinnovo"):
+                            if is_gen_rin:
+                                g_obj_r['rinnovato_a_gennaio'] = True
+                                g_obj_r['vecchio_amm_gennaio'] = g_obj_r['ammortamento_annuo']
+                                g_obj_r['vecchio_stip_gennaio'] = g_obj_r['stipendio']
+                                g_obj_r['valore_residuo'] = vr_a_gennaio
+                                
+                            g_obj_r['stipendio'] = nuovo_stipendio
+                            g_obj_r['costo_acquisto'] = g_obj_r['valore_residuo']
+                            g_obj_r['anni_contratto'] = nuovi_anni
+                            g_obj_r['ammortamento_annuo'] = nuovo_amm
+                            g_obj_r['anni_trascorsi'] = 0
+                            
+                            if 'rinnovo_prenotato' in g_obj_r: del g_obj_r['rinnovo_prenotato']
+                            
                             save_data(db, DB_PATH)
-                            st.success(f"Contratto di {g_obj_r['nome']} prenotato! L'accordo entrerà in vigore alla chiusura del bilancio.")
+                            st.success(f"Contratto di {g_obj_r['nome']} rinnovato ufficialmente!")
                             st.rerun()
 
 # ==========================================
@@ -437,6 +513,7 @@ elif menu == "4. Mercato (Prestiti)":
                 col_dur, col_stip = st.columns(2)
                 durata_prestito = col_dur.slider("Durata Prestito (Anni)", 1, 2, 1)
                 perc_stipendio = col_stip.slider("% Stipendio a carico dell'Acquirente", 0, 100, 50, step=10)
+                st.info("💡 **Tip per i Prestiti Invernali (Gennaio):** Se prestate un giocatore a metà anno dividendo lo stipendio reale a metà (50/50) per i restanti 6 mesi, qui dovete impostare **25%** (perché inciderà per un quarto sul totale annuale di Bilancio).")
                 
                 col_on, col_tipo, col_cifra = st.columns(3)
                 costo_prestito = col_on.number_input("Costo Prestito (Oneroso in MLN)", min_value=0.0, step=0.5, value=0.0)
@@ -453,8 +530,6 @@ elif menu == "4. Mercato (Prestiti)":
                         st.error(f"⚠️ Impossibile prestare. Il giocatore ha solo {anni_rimanenti} anno/i di contratto residui. Per un prestito di {durata_prestito} anni, servono almeno {durata_prestito + 1} anni di contratto (rinnovalo prima di cederlo!).")
                     elif costo_prestito > db[sq_acquirente]['cassa']:
                         st.error("Cassa acquirente insufficiente per il prestito oneroso!")
-                    elif len(db[sq_acquirente]['rosa']) >= 25: 
-                        st.error("Rosa acquirente piena!")
                     else:
                         g_acq = g_obj.copy()
                         g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
@@ -812,7 +887,6 @@ elif menu == "7. Coppe (Italia & CL)":
 elif menu == "8. Chiusura Fiscale Bilancio":
     st.header("📜 Chiusura Fiscale")
     
-    # --- ZONA PROTETTA (SOLO ADMIN PUÒ CHIUDERE L'ANNO) ---
     if not st.session_state.is_admin:
         st.info("🔒 L'esecuzione della chiusura fiscale è riservata all'Amministratore.")
     else:
@@ -827,6 +901,10 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     stip = g['stipendio']
                     if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0:
                         amm /= 2; stip /= 2
+                    # NUOVO: Pro-quota Rinnovi per la Chiusura
+                    elif g.get('rinnovato_a_gennaio') and g['anni_trascorsi'] == 0:
+                        amm = (g['vecchio_amm_gennaio'] / 2) + (g['ammortamento_annuo'] / 2)
+                        stip = (g['vecchio_stip_gennaio'] / 2) + (g['stipendio'] / 2)
                         
                     if not g.get("in_prestito_da"): 
                         tot_ammortamenti += amm
@@ -896,21 +974,26 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                             if g['anni_prestito_rimanenti'] > 0:
                                 nuova_rosa.append(g) 
                     elif g.get("prestato_a"):
+                        # --- Calcoliamo la decurtazione corretta includendo Gennaio! ---
+                        amm_da_togliere = g['ammortamento_annuo']
+                        if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0: 
+                            amm_da_togliere /= 2
+                        elif g.get('rinnovato_a_gennaio') and g['anni_trascorsi'] == 0:
+                            amm_da_togliere /= 2 
+                            
                         if "riscatto_prenotato" in g:
                             prezzo_r = g['riscatto_prenotato']['cifra']
                             dati['cassa'] += prezzo_r
                             
-                            # --- LA TUA INTUIZIONE CONTABILE ---
-                            # Togliamo i 5M di ammortamento per trovare il vero VR (10M)
-                            amm = g['ammortamento_annuo']
-                            vero_valore_residuo = max(0, g['valore_residuo'] - amm)
+                            # Applichiamo amm_da_togliere corretto per la Plusvalenza
+                            vero_valore_residuo = max(0, g['valore_residuo'] - amm_da_togliere)
                             
                             diff = prezzo_r - vero_valore_residuo
                             if diff > 0: dati['bilancio']['ricavi']['plusvalenze'] += diff
                             else: dati['bilancio']['costi']['minusvalenze'] += abs(diff)
                         else:
-                            amm = g['ammortamento_annuo']
-                            g['valore_residuo'] = max(0, g['valore_residuo'] - amm)
+                            # Applichiamo amm_da_togliere corretto per il normale deprezzamento
+                            g['valore_residuo'] = max(0, g['valore_residuo'] - amm_da_togliere)
                             g['anni_trascorsi'] += 1
                             g['anni_prestito_rimanenti'] -= 1
                             if g['anni_prestito_rimanenti'] > 0:
@@ -922,29 +1005,29 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                                 if 'anni_prestito_rimanenti' in g: del g['anni_prestito_rimanenti']
                                 nuova_rosa.append(g)
                     else:
-                        amm = g['ammortamento_annuo']
-                        if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0: amm /= 2
-                        g['valore_residuo'] = max(0, g['valore_residuo'] - amm)
+                        amm_da_togliere = g['ammortamento_annuo']
+                        if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0: 
+                            amm_da_togliere /= 2
+                        elif g.get('rinnovato_a_gennaio') and g['anni_trascorsi'] == 0:
+                            # In Inverno avevamo già sottratto la metà vecchia. Ora togliamo la metà nuova.
+                            amm_da_togliere /= 2 
+                            
+                        g['valore_residuo'] = max(0, g['valore_residuo'] - amm_da_togliere)
                         g['anni_trascorsi'] += 1
                         
-                        if "rinnovo_prenotato" in g:
-                            g['stipendio'] *= 1.15
-                            g['anni_contratto'] = g['rinnovo_prenotato']['nuovi_anni']
-                            g['costo_acquisto'] = g['valore_residuo']
-                            g['ammortamento_annuo'] = g['valore_residuo'] / g['anni_contratto'] if g['anni_contratto'] > 0 else 0
-                            g['anni_trascorsi'] = 0
-                            del g['rinnovo_prenotato']
-                            nuova_rosa.append(g)
-                        elif g['anni_trascorsi'] < g['anni_contratto']:
+                        if g['anni_trascorsi'] < g['anni_contratto']:
                             nuova_rosa.append(g)
                 dati['rosa'] = nuova_rosa 
                 
             save_data(db, DB_PATH)
+            
+            # --- AZZERAMENTO COMPETIZIONI PER LA NUOVA STAGIONE ---
+            # Svuota il calendario e ricrea i tabelloni vuoti delle coppe
+            save_data([], CAL_PATH)
+            save_data(init_coppe(), COPPE_PATH)
             st.success("✅ Chiusura Fiscale Completata! Bilanci azzerati, contratti scaduti rimossi, prestiti e riscatti processati per la nuova stagione.")
             st.balloons()
 
-
-    # --- ZONA LIBERA (PROSPETTO VISIBILE A TUTTI GLI UTENTI) ---
     st.divider()
     st.subheader("📊 Prospetto Finanziario Stagione Precedente")
     
@@ -1052,7 +1135,10 @@ elif menu == "9. Regolamento Ufficiale":
     st.subheader("3. Gestione Sportiva: Composizione della Rosa e Contratti")
     st.markdown("""
     ### 3.1 Limiti e Composizione della Rosa
-    L'organico ufficiale di ciascuna società deve essere composto, durante le competizioni sporive, da un numero inderogabile di **25 calciatori**. La ripartizione per ruoli è vincolante ed è fissata a: **3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti**. Non sono ammessi posti vacanti né tesseramenti in esubero. Solamente in occasione delle finestre di mercato è possibile superare il numero massimo di 25 giocatori.
+    Le società hanno la facoltà di tesserare un numero illimitato di calciatori (tra acquisti a titolo definitivo e trasferimenti temporanei), purché nel rigoroso rispetto dei vincoli economici e del Fair Play Finanziario imposti a Bilancio. 
+
+    Tuttavia, per partecipare alle competizioni ufficiali (Campionato e Coppe), ogni allenatore ha l'obbligo di comunicare alla Direzione una lista inderogabile di **25 calciatori convocabili** per l'intera durata della stagione. 
+    La ripartizione per ruoli all'interno dei 25 scelti è vincolante ed è fissata a: **3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti**. I calciatori di proprietà non inseriti in questa speciale lista dei 25 restano a tutti gli effetti a libro paga della società (generando regolarmente oneri di stipendio e ammortamento), ma non potranno prendere parte ad alcuna gara ufficiale.
 
     ### 3.2 Vincoli Contrattuali e Compensi
     L'acquisizione di un calciatore comporta la contestuale stipula di un contratto di prestazione sportiva di durata compresa tra 1 e 5 anni. Tutti i contratti iniziano l'1 Gennaio oppure l'1 Luglio di ogni anno e terminano tutti il 30 Giugno. Il compenso annuale (Stipendio) costituisce un costo d'esercizio ricorrente, ed è parametrato al costo storico del cartellino:
@@ -1096,14 +1182,16 @@ elif menu == "9. Regolamento Ufficiale":
     ### 4.2 Acquisti in Sessione Invernale (Gennaio)
     Le operazioni di mercato concluse durante la sessione di Gennaio sono soggette a un trattamento contabile specifico, volto a riflettere l'utilizzo del calciatore per il solo girone di ritorno (6 mesi).
     1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
-    2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza.
-    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza.
+    2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza. Tale regola si applica anche nell'eventualità in cui il calciatore venga immediatamente girato in prestito altrove.
+    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la mezza quota di ammortamento maturata nel semestre di permanenza.
     4. **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
     
     ### 4.3 Cessione a Titolo Definitivo e Rilevazione di Plusvalenze/Minusvalenze
     Il **Valore Residuo** di un calciatore è il valore patrimoniale netto del cartellino, calcolato sottraendo dal costo storico gli ammortamenti già contabilizzati negli esercizi precedenti. La cessione di un tesserato genera:
     1. **Sotto il profilo della Liquidità (Cassa):** Accredito istantaneo del corrispettivo pattuito per la vendita.
     2. **Sotto il profilo Economico (Bilancio):** L'interruzione degli oneri futuri (ammortamento e stipendio non ancora maturati) e la rilevazione nel Bilancio dell'anno in corso di una **Plusvalenza** (se il prezzo di vendita è superiore al Valore Residuo) o di una **Minusvalenza** (se il prezzo di vendita è inferiore al Valore Residuo), rispettivamente nei Ricavi o nei Costi.
+    
+    **⛔ Vincolo per Cessioni di giocatori in prestito:** Non è assolutamente consentito vendere a titolo definitivo o inserire in scambi di mercato un calciatore che si trova attualmente ceduto in prestito presso un'altra società. È necessario prima accordarsi con la controparte per l'interruzione anticipata del prestito e richiamare il giocatore nella rosa attiva.
     """)
     
     # ESEMPIO 2 HTML
@@ -1133,6 +1221,7 @@ elif menu == "9. Regolamento Ufficiale":
     **Ammortamenti e Oneri Salariali durante il prestito:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
     * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino).
     * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a libera contrattazione (es. 50% e 50%, 100% all'acquirente, ecc.). Le quote proporzionali pattuite si rifletteranno sul "Monte Ingaggi" dei rispettivi Bilanci.
+    * **💡 Condivisione Stipendi Invernale (Il calcolo del 25%):** In caso di prestito stipulato nella sessione di Gennaio con condivisione dell'ingaggio (es. si concorda di far pagare all'acquirente il 50% dello stipendio per i soli 6 mesi restanti), la percentuale da inserire nel gestionale dovrà essere **dimezzata a 25%**. Questo perché il sistema applica la percentuale di compartecipazione sull'intero monte ingaggi annuale del calciatore alla fine dell'esercizio.
 
     **Risoluzione Anticipata del Prestito:** Le due società coinvolte possono accordarsi in qualsiasi momento per l'interruzione anticipata del prestito. Tramite l'apposita funzione del gestionale, il calciatore farà rientro immediato nella rosa attiva della società madre. La risoluzione anticipata annulla in automatico qualsiasi precedente accordo relativo a diritti o obblighi di riscatto.
 
@@ -1145,15 +1234,19 @@ elif menu == "9. Regolamento Ufficiale":
     L'interruzione anticipata del vincolo contrattuale (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
     * **Impatto sulla Cassa:** Nessun introito.
     * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo.
+    
+    **⛔ Vincolo Svincoli:** Analogamente alle cessioni, non è consentito svincolare un giocatore qualora questi si trovi in prestito.
 
     **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento è giunto a naturale esaurimento. La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale per gli esercizi futuri.
 
-    ### 4.6 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
-    Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato prima della naturale scadenza. **Tuttavia, è fatto assoluto divieto di negoziare o prenotare il rinnovo di un giocatore mentre quest'ultimo si trova in prestito presso un'altra società** (la società madre dovrà richiamarlo anticipatamente per potergli estendere il contratto).
-
-    La sottoscrizione di un rinnovo produce due effetti contabili:
-    1. **Adeguamento Salariale:** Lo stipendio annuale del tesserato subisce un incremento obbligatorio pari al +15% rispetto al compenso attualmente in essere.
-    2. **Rimodulazione dell'Ammortamento:** Il Valore Residuo del calciatore, calcolato al momento del rinnovo, viene ripartito ("spalmato") sulla nuova durata contrattuale pattuita (massimo 3 anni aggiuntivi). La nuova Quota di Ammortamento annuale sarà ricalcolata dividendo il Valore Residuo per i nuovi anni di contratto, e il conteggio degli "anni trascorsi" si azzera.
+    ### 4.6 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento (Spalmatura)
+    Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato in qualsiasi momento prima della naturale scadenza (ad eccezione dei giocatori attualmente in prestito, che devono essere prima richiamati alla base).
+    
+    **La Nuova Durata:** Il rinnovo non "somma" anni al vecchio contratto, bensì lo **sovrascrive**. Selezionare ad esempio "3 Anni" significa che il giocatore rimarrà vincolato alla società per la stagione sportiva in corso più le successive due.
+    
+    La sottoscrizione di un rinnovo produce effetti contabili **immediati** sul Bilancio d'Esercizio in corso, ma con differenti logiche in base alla sessione:
+    * **☀️ Rinnovo Estivo (Inizio Stagione):** Lo stipendio annuale subisce un incremento obbligatorio del +15%. Il Valore Residuo attuale viene "spalmato" sui nuovi anni scelti, abbassando istantaneamente la Quota di Ammortamento annuale e fornendo un utile strumento per alleggerire il Bilancio della stagione in corso.
+    * **❄️ Rinnovo Invernale (Metà Stagione):** Il gestionale applicherà un esatto calcolo **Pro-Quota (50 e 50)** sul bilancio dell'anno in corso. Per la stagione corrente, la società pagherà un ammortamento e uno stipendio calcolati sommando metà del vecchio contratto maturato (da Luglio a Dicembre) e metà del nuovo contratto stipulato (da Gennaio a Giugno). Dall'anno fiscale successivo, i valori del nuovo contratto entreranno a regime al 100%.
     """)
 
     # ESEMPIO 3 HTML
@@ -1174,10 +1267,10 @@ elif menu == "9. Regolamento Ufficiale":
     """, unsafe_allow_html=True)
 
     st.markdown("""
-    ### 4.7 Efficacia Temporale degli Accordi (Sistema di Prenotazione)
-    Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti/obblighi di riscatto e i rinnovi contrattuali operati a stagione in corso agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
+    ### 4.7 Efficacia Temporale degli Accordi di Riscatto (Sistema di Prenotazione)
+    Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti/obblighi di riscatto agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
 
-    La formalizzazione di tali operazioni tramite il gestionale **non produce alcun effetto immediato** sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile (transito del denaro in Cassa, calcolo delle Plusvalenze/Minusvalenze da riscatto, incremento salariale del +15% da rinnovo e ricalcolo dei nuovi ammortamenti) viene posticipata e resa effettiva **esclusivamente all'atto della Chiusura Fiscale di fine stagione**, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
+    La formalizzazione del riscatto tramite il gestionale **non produce alcun effetto immediato** sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile (transito del denaro in Cassa e calcolo delle Plusvalenze/Minusvalenze) viene posticipata e resa effettiva **esclusivamente all'atto della Chiusura Fiscale di fine stagione**, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
     """)
 
     st.divider()
@@ -1257,6 +1350,6 @@ elif menu == "9. Regolamento Ufficiale":
     2. **Verifica del Fair Play Finanziario:** Viene calcolato il Risultato d'Esercizio del Bilancio (Ricavi - Costi).
        * 🟢 **Risultato Positivo (Utile d'Esercizio):** La società ha rispettato i parametri economici. Non avviene alcun prelievo aggiuntivo. (L'utile non si somma alla Cassa in quanto gli introiti dei ricavi sono già stati percepiti nel corso dell'anno).
        * 🔴 **Risultato Negativo (Perdita d'Esercizio):** La società ha violato i parametri UEFA vivendo al di sopra delle proprie possibilità. Scatta l'obbligo di ricapitalizzazione immediata: **un importo pari all'intera Perdita certificata viene prelevato coattivamente e sottratto dalla Cassa societaria** per ripianare il debito.
-    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi prenotati e gli svincoli a parametro zero.
+    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi e gli svincoli a parametro zero.
     4. **Apertura del Nuovo Esercizio e Iniezioni di Capitale:** (Fase attiva a partire dalla seconda stagione). Il sistema provvede a immettere **nuova liquidità in Cassa**: accredita istantaneamente i **50 milioni** del nuovo capitale, unitamente ai **Proventi dello Sponsor** maturati grazie alla classifica dell'anno appena concluso. Le stesse identiche voci vengono iscritte nei nuovi Ricavi a Bilancio, fornendo alle società la base operativa su cui fondare il mercato della nuova stagione.
     """)
