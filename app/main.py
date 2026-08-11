@@ -4,6 +4,7 @@ import pandas as pd
 import random
 from google.oauth2 import service_account
 from google.cloud import firestore
+import plotly.express as px
 
 st.set_page_config(page_title="Osei Football League", layout="wide", initial_sidebar_state="expanded")
 
@@ -215,134 +216,217 @@ if menu == "1. Setup Società":
                     st.success(f"Sponsor {ns} firmato! 30 Milioni accreditati in Cassa e a Bilancio per la stagione 1.")
 
 # ==========================================
-# 2. DASHBOARD & ROSA
+# 2. DASHBOARD & ROSA (MODERN UI V5 - DEFINITIVA)
 # ==========================================
 elif menu == "2. Dashboard & Rosa":
-    st.header("📊 Prospetto Finanziario")
-    if not db: st.warning("Nessuna squadra presente.")
+    
+    # --- CSS PER IL TEMA E LA TABELLA CUSTOM ---
+    st.markdown("""
+    <style>
+    .stApp { background-color: #F4F7FC; }
+    
+    /* Stile per le metriche in alto */
+    div[data-testid="metric-container"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.03);
+    }
+    
+    .block-container { padding-top: 2rem; }
+
+    /* Stile per la tabella Roster Custom */
+    .roster-table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.03);
+        font-family: sans-serif;
+    }
+    .roster-table th {
+        background-color: #F8FAFC;
+        color: #64748B;
+        font-weight: 600;
+        font-size: 13px;
+        text-align: left;
+        padding: 12px 15px;
+        border-bottom: 2px solid #E2E8F0;
+    }
+    .roster-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #F1F5F9;
+        color: #334155;
+        font-size: 14px;
+    }
+    .roster-table tr:last-child td {
+        border-bottom: none;
+    }
+    .roster-table tr:hover {
+        background-color: #F8FAFC;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if not db: 
+        st.warning("Nessuna squadra presente.")
     else:
-        sq_sel = st.selectbox("Analizza Società", list(db.keys()))
+        sq_sel = st.selectbox("Seleziona Squadra da Analizzare", list(db.keys()))
         squadra = db[sq_sel]
         b = squadra['bilancio']
         
+        # --- CALCOLI FINANZIARI & COSTI GIOCATORI ---
         tot_ammortamenti, tot_ingaggi = 0.0, 0.0
+        giocatori_con_costo = [] 
+        opportunita_rinnovo = [] 
+        
         for g in squadra['rosa']:
             amm = g['ammortamento_annuo']
             stip = g['stipendio']
+            anni_res = g['anni_contratto'] - g.get('anni_trascorsi', 0)
             
-            # Calcolo pro-quota per acquisti a Gennaio
             if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0:
-                amm /= 2
-                stip /= 2
-            # NUOVO: Calcolo pro-quota (50 e 50) per Rinnovi a Gennaio
+                amm /= 2; stip /= 2
             elif g.get('rinnovato_a_gennaio') and g['anni_trascorsi'] == 0:
-                amm = (g['vecchio_amm_gennaio'] / 2) + (g['ammortamento_annuo'] / 2)
-                stip = (g['vecchio_stip_gennaio'] / 2) + (g['stipendio'] / 2)
+                amm = (g.get('vecchio_amm_gennaio', amm) / 2) + (g['ammortamento_annuo'] / 2)
+                stip = (g.get('vecchio_stip_gennaio', stip) / 2) + (g['stipendio'] / 2)
                 
-            if g.get("in_prestito_da"): tot_ingaggi += stip * (g['perc_stipendio_pagato'] / 100)
-            elif g.get("prestato_a"):
+            costo_reale_anno = 0
+            
+            if not g.get("in_prestito_da"): 
                 tot_ammortamenti += amm
-                tot_ingaggi += stip * ((100 - g['perc_stipendio_pagato']) / 100)
-            else:
-                tot_ammortamenti += amm
-                tot_ingaggi += stip
+                costo_reale_anno += amm 
                 
+                if g.get("prestato_a"): 
+                    quota_stip = stip * ((100 - g.get('perc_stipendio_pagato', 0)) / 100)
+                    tot_ingaggi += quota_stip
+                    costo_reale_anno += quota_stip
+                else: 
+                    tot_ingaggi += stip
+                    costo_reale_anno += stip
+                    
+                # SIMULAZIONE RINNOVO
+                if not g.get("prestato_a") and anni_res <= 2:
+                    costo_attuale_regime = g['ammortamento_annuo'] + g['stipendio']
+                    nuovo_stipendio = g['stipendio'] * 1.15
+                    nuovo_ammortamento = g['valore_residuo'] / 3
+                    nuovo_costo_regime = nuovo_stipendio + nuovo_ammortamento
+                    risparmio = costo_attuale_regime - nuovo_costo_regime
+                    
+                    if risparmio > 0:
+                        opportunita_rinnovo.append({
+                            "nome": g['nome'],
+                            "anni_res": anni_res,
+                            "risparmio": risparmio
+                        })
+            else: 
+                quota_stip = stip * (g.get('perc_stipendio_pagato', 100) / 100)
+                tot_ingaggi += quota_stip
+                costo_reale_anno += quota_stip
+                
+            if not g.get("prestato_a"): 
+                giocatori_con_costo.append({
+                    "nome": g['nome'], "ruolo": g['ruolo'], "anni": anni_res,
+                    "acquisto": g['costo_acquisto'], "amm": amm, "stip": stip, 
+                    "val_res": g['valore_residuo'], "costo_totale": costo_reale_anno
+                })
+
         b['costi']['ammortamenti'] = tot_ammortamenti
         b['costi']['monte_ingaggi'] = tot_ingaggi
-        
         tot_ricavi = sum(b['ricavi'].values())
         tot_costi = sum(b['costi'].values())
         utile = tot_ricavi - tot_costi
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("💰 LIQUIDITÀ (CASSA)", f"{squadra['cassa']:.2f} M")
-        c2.metric("📈 Totale Ricavi", f"{tot_ricavi:.2f} M")
-        c3.metric("📉 Totale Costi", f"{tot_costi:.2f} M")
-        c4.metric("⚖️ Risultato (Utile/Perdita)", f"{utile:.2f} M")
+        # ==========================================
+        # RIGA 1: METRICHE CHIAVE
+        # ==========================================
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("💰 Liquidità (Cassa)", f"{squadra['cassa']:.2f} M")
+        m2.metric("🟢 Ricavi Totali", f"{tot_ricavi:.2f} M")
+        m3.metric("🔴 Costi Totali", f"{tot_costi:.2f} M")
+        m4.metric("⚖️ Utile / Perdita", f"{utile:.2f} M", delta="Bilancio Sano" if utile >= 0 else "Rischio Multa", delta_color="normal" if utile >= 0 else "inverse")
 
-        # Mettilo esattamente sotto le 4 metriche (c1, c2, c3, c4) nel Menu 2
-        
-        with st.expander("🔍 Dettaglio Voci di Bilancio (Live)"):
-            col_ric, col_cost = st.columns(2)
-            with col_ric:
-                st.markdown("#### 🟢 Ricavi Attuali")
-                for k, v in b['ricavi'].items():
-                    if v > 0: 
-                        st.write(f"- **{k.replace('_', ' ').title()}**: {v:.2f} M")
-            with col_cost:
-                st.markdown("#### 🔴 Costi Attuali")
-                for k, v in b['costi'].items():
-                    if v > 0: 
-                        st.write(f"- **{k.replace('_', ' ').title()}**: {v:.2f} M")
-        
-        st.divider()
-        
-        # Filtriamo chi è in prestito altrove e chi è attivo
-        rosa_attiva = [g for g in squadra['rosa'] if not g.get("prestato_a")]
-        rosa_fuori = [g for g in squadra['rosa'] if g.get("prestato_a")]
-        
-        st.subheader(f"👥 Rosa Attiva ({len(rosa_attiva)} giocatori)")
-        conteggio = {"Portiere": 0, "Difensore": 0, "Centrocampista": 0, "Attaccante": 0}
-        for g in rosa_attiva: conteggio[g['ruolo']] += 1
-        st.write(f"**POR:** {conteggio['Portiere']} | **DIF:** {conteggio['Difensore']} | **CEN:** {conteggio['Centrocampista']} | **ATT:** {conteggio['Attaccante']}")
+        st.write("") 
 
-        if rosa_attiva:
-            df_attiva = pd.DataFrame(rosa_attiva)
-            colonne_visibili = ['nome', 'ruolo', 'anni_contratto', 'costo_acquisto', 'valore_residuo', 'ammortamento_annuo', 'stipendio']
-            df_display = df_attiva[colonne_visibili].copy()
+        # ==========================================
+        # RIGA 2: ROSTER (sx) + WIDGETS MANAGERIALI (dx)
+        # ==========================================
+        col_sx, col_dx = st.columns([2.2, 1])
+
+        with col_sx:
+            # --- CONTEGGIO RUOLI DINAMICO ---
+            conteggio = {"Portiere": 0, "Difensore": 0, "Centrocampista": 0, "Attaccante": 0}
+            for g in squadra['rosa']:
+                if not g.get("prestato_a"):
+                    conteggio[g['ruolo']] += 1
             
-            if 'in_prestito_da' in df_attiva.columns:
-                df_display['In Prestito Da'] = df_attiva['in_prestito_da']
+            ruoli_str = f"POR: {conteggio['Portiere']}/3 &nbsp;|&nbsp; DIF: {conteggio['Difensore']}/8 &nbsp;|&nbsp; CEN: {conteggio['Centrocampista']}/8 &nbsp;|&nbsp; ATT: {conteggio['Attaccante']}/6"
             
-            # --- ORDINAMENTO PER RUOLO ---
-            ordine_ruoli = ["Portiere", "Difensore", "Centrocampista", "Attaccante"]
-            df_display['ruolo'] = pd.Categorical(df_display['ruolo'], categories=ordine_ruoli, ordered=True)
-            df_display = df_display.sort_values(['ruolo', 'nome']) 
+            st.markdown(f"##### 📝 Roster Attivo <span style='font-size: 13px; font-weight: 500; color: #64748B; float: right; margin-top: 5px;'>{ruoli_str}</span>", unsafe_allow_html=True)
             
-            # --- RINOMINA LE COLONNE ---
-            df_display.rename(columns={
-                'nome': 'Nome',
-                'ruolo': 'Ruolo',
-                'anni_contratto': 'Anni Contratto',
-                'costo_acquisto': 'Costo Acquisto (M)',
-                'valore_residuo': 'Valore Residuo (M)',
-                'ammortamento_annuo': 'Ammortamento (M)',
-                'stipendio': 'Stipendio (M)'
-            }, inplace=True)
+            if giocatori_con_costo:
+                html_table = "<table class='roster-table'>"
+                html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Res.</th><th>Acquisto</th><th>Ammort.</th><th>Stipendio</th><th>Costo Bilancio</th><th>Val. Residuo</th></tr>"
+                
+                for g in giocatori_con_costo:
+                    html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['anni']}</td><td>{g['acquisto']:.2f} M</td><td>{g['amm']:.2f} M</td><td>{g['stip']:.2f} M</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']:.2f} M</td><td><strong>{g['val_res']:.2f} M</strong></td></tr>"
+                    
+                html_table += "</table>"
+                st.markdown(html_table, unsafe_allow_html=True)
+            else:
+                st.info("Nessun giocatore attualmente in rosa.")
+
+        with col_dx:
+            # WIDGET 1: Dettaglio Voci
+            st.markdown("##### 🔍 Dettaglio Voci")
+            html_voci = """
+            <div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px; margin-bottom: 20px;'>
+                <strong style='color: #10B981;'>🟢 Valore Produzione</strong><br>
+            """
+            for k, v in b['ricavi'].items():
+                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.1f} M</span><br>"
             
-            # --- TRUCCO DEFINITIVO: TRASFORMIAMO I NUMERI IN TESTO ---
-            df_display['Anni Contratto'] = df_display['Anni Contratto'].map('{:.0f}'.format)
-            df_display['Costo Acquisto (M)'] = df_display['Costo Acquisto (M)'].map('{:.2f}'.format)
-            df_display['Valore Residuo (M)'] = df_display['Valore Residuo (M)'].map('{:.2f}'.format)
-            df_display['Ammortamento (M)'] = df_display['Ammortamento (M)'].map('{:.2f}'.format)
-            df_display['Stipendio (M)'] = df_display['Stipendio (M)'].map('{:.2f}'.format)
+            html_voci += "<br><strong style='color: #EF4444;'>🔴 Costi Produzione</strong><br>"
+            for k, v in b['costi'].items():
+                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.1f} M</span><br>"
+            html_voci += "</div>"
+            st.markdown(html_voci, unsafe_allow_html=True)
             
-            st.dataframe(df_display, hide_index=True, use_container_width=True)
-            
-        if rosa_fuori:
-            st.subheader(f"✈️ Giocatori Ceduti in Prestito ({len(rosa_fuori)})")
-            df_fuori = pd.DataFrame(rosa_fuori)
-            df_fuori_disp = df_fuori[['nome', 'ruolo', 'prestato_a', 'valore_residuo', 'ammortamento_annuo']].copy()
-            
-            # Ordiniamo anche i ceduti per ruolo
-            ordine_ruoli = ["Portiere", "Difensore", "Centrocampista", "Attaccante"]
-            df_fuori_disp['ruolo'] = pd.Categorical(df_fuori_disp['ruolo'], categories=ordine_ruoli, ordered=True)
-            df_fuori_disp = df_fuori_disp.sort_values(['ruolo', 'nome'])
-            
-            # --- RINOMINA LE COLONNE DEI CEDUTI ---
-            df_fuori_disp.rename(columns={
-                'nome': 'Nome',
-                'ruolo': 'Ruolo',
-                'prestato_a': 'In Prestito A',
-                'valore_residuo': 'Valore Residuo (M)',
-                'ammortamento_annuo': 'Ammortamento (M)'
-            }, inplace=True)
-            
-            # --- TRASFORMIAMO IN TESTO ANCHE I CEDUTI ---
-            df_fuori_disp['Valore Residuo (M)'] = df_fuori_disp['Valore Residuo (M)'].map('{:.2f}'.format)
-            df_fuori_disp['Ammortamento (M)'] = df_fuori_disp['Ammortamento (M)'].map('{:.2f}'.format)
-            
-            st.dataframe(df_fuori_disp, hide_index=True, use_container_width=True)
+            # WIDGET 2: Top Costi
+            st.markdown("##### ⚠️ Maggiori Costi a Bilancio")
+            top_costosi = sorted(giocatori_con_costo, key=lambda x: x['costo_totale'], reverse=True)[:3]
+            if top_costosi:
+                html_top = "<div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px; margin-bottom: 20px;'>"
+                html_top += "<div style='color: #64748B; margin-bottom: 10px; font-size: 12px;'>Incidenza su questo bilancio:</div>"
+                
+                for i, g in enumerate(top_costosi):
+                    medaglia = ["🥇", "🥈", "🥉"][i] if i < 3 else ""
+                    html_top += f"<div style='margin-bottom: 8px;'>{medaglia} <strong>{g['nome']}</strong> <span style='float: right; color: #EF4444; font-weight: bold;'>-{g['costo_totale']:.2f} M</span></div>"
+                html_top += "</div>"
+                st.markdown(html_top, unsafe_allow_html=True)
+                
+            # WIDGET 3: Opportunità di Spalmatura
+            st.markdown("##### ⏳ Opportunità di Rinnovo")
+            if opportunita_rinnovo:
+                opportunita_ordinate = sorted(opportunita_rinnovo, key=lambda x: x['risparmio'], reverse=True)[:3]
+                
+                html_opp = "<div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px;'>"
+                html_opp += "<div style='color: #64748B; margin-bottom: 10px; font-size: 12px;'>Spalmando il contratto a 3 anni risparmi:</div>"
+                
+                for g in opportunita_ordinate:
+                    anni_testo = "anno" if g['anni_res'] == 1 else "anni"
+                    html_opp += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #E2E8F0; padding-bottom: 5px;'>"
+                    html_opp += f"<strong>{g['nome']}</strong> <span style='font-size: 11px; color: #94A3B8;'>(Scade tra {g['anni_res']} {anni_testo})</span><br>"
+                    html_opp += f"<span style='color: #10B981; font-weight: bold;'>✨ +{g['risparmio']:.2f} M</span> a bilancio"
+                    html_opp += "</div>"
+                
+                html_opp += "</div>"
+                st.markdown(html_opp, unsafe_allow_html=True)
+            else:
+                st.info("Nessuna opzione vantaggiosa.")
 
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
@@ -408,6 +492,9 @@ elif menu == "3. Mercato (Definitivi)":
                     
                     if g_obj.get("prestato_a"):
                         st.error(f"❌ Impossibile vendere. {g_obj['nome']} è attualmente in prestito a {g_obj['prestato_a']}. Interrompi il prestito dal Menu 4 prima di cederlo a titolo definitivo.")
+                    # --- NUOVO: BLOCCO PER CHI È IN PRESTITO "DA" UN'ALTRA SQUADRA ---
+                    elif g_obj.get("in_prestito_da"):
+                        st.error(f"❌ Operazione Illegale. Non puoi vendere {g_obj['nome']} perché è di proprietà di: {g_obj['in_prestito_da']}.")
                     else:
                         sessione_ven = st.radio("Sessione Cessione", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Mezza Stagione)"], horizontal=True, key="sess_ven")
                         val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2) if "Invernale" in sessione_ven else g_obj['valore_residuo']
@@ -433,7 +520,10 @@ elif menu == "3. Mercato (Definitivi)":
                     g_obj_s = next(g for g in squadra['rosa'] if g['nome'] == g_svincolo)
                     
                     if g_obj_s.get("prestato_a"):
-                        st.error(f"❌ Impossibile svincolare. {g_obj_s['nome']} è attualmente in prestito a {g_obj_s['prestato_a']}. Interrompi il prestito dal Menu 4 prima di stracciare il contratto.")
+                        st.error(f"❌ Impossibile svincolare. {g_obj_s['nome']} è attualmente in prestito a {g_obj_s['prestato_a']}.")
+                    # --- NUOVO BLOCCO ---
+                    elif g_obj_s.get("in_prestito_da"):
+                        st.error(f"❌ Non puoi svincolare un giocatore in prestito. Proprietà: {g_obj_s['in_prestito_da']}. Usa l'Interruzione Prestito nel Menu 4.")
                     else:
                         sessione_svin = st.radio("Sessione Svincolo", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_svin")
                         val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2) if "Invernale" in sessione_svin else g_obj_s['valore_residuo']
@@ -455,44 +545,67 @@ elif menu == "3. Mercato (Definitivi)":
                     g_obj_r = next(g for g in squadra['rosa'] if g['nome'] == g_rinnovo)
                     
                     if g_obj_r.get("prestato_a"):
-                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è attualmente in prestito. Richiamalo anticipatamente dal prestito per poter negoziare il rinnovo.")
+                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è in prestito. Richiamalo prima di negoziare.")
+                    elif g_obj_r.get("in_prestito_da"):
+                        st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} non è un tuo giocatore (Proprietà: {g_obj_r['in_prestito_da']}). Solo la società madre può fargli il rinnovo!")
                     else:
                         sessione_rin = st.radio("Quando avviene il rinnovo?", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Metà Stagione)"], horizontal=True)
                         is_gen_rin = "Invernale" in sessione_rin
                         
-                        st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
+                        # --- NUOVA LOGICA: BLOCCO RINNOVO IMMEDIATO ---
+                        anni_residui = g_obj_r['anni_contratto'] - g_obj_r.get('anni_trascorsi', 0)
+                        blocco_recente = False
+                        msg_blocco = ""
                         
-                        nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 5)", 1, 5, 3, key="anni_rinnovo")
-                        nuovo_stipendio = g_obj_r['stipendio'] * 1.15
+                        # Se ha > 1 anno di contratto ED è al suo primo anno nel club (appena arrivato)
+                        if anni_residui > 1 and g_obj_r.get('anni_trascorsi', 0) == 0:
+                            # Comprato in estate, provi a rinnovare in estate
+                            if not g_obj_r.get('acquistato_a_gennaio') and not is_gen_rin:
+                                blocco_recente = True
+                                msg_blocco = "Hai acquistato o rinnovato questo giocatore in questa sessione Estiva. Potrai rinegoziare a partire da Gennaio."
+                            # Comprato a gennaio, provi a rinnovare a gennaio
+                            elif g_obj_r.get('acquistato_a_gennaio') and is_gen_rin:
+                                blocco_recente = True
+                                msg_blocco = "Hai acquistato questo giocatore in questa sessione Invernale. Potrai rinegoziare a partire dalla prossima Estate."
                         
-                        if is_gen_rin:
-                            st.info("❄️ **Rinnovo Invernale:** Il sistema calcolerà l'impatto sul bilancio di quest'anno in modalità pro-quota (50% vecchio contratto, 50% nuovo contratto).")
-                            vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
-                            nuovo_amm = vr_a_gennaio / nuovi_anni if nuovi_anni > 0 else 0
+                        # Se scatta il blocco, mostriamo l'avviso e NASCONDIAMO i tasti di rinnovo
+                        if blocco_recente:
+                            st.warning(f"✋ **Operazione Bloccata.** {msg_blocco} (Eccezione: I giocatori in scadenza possono sempre essere rinnovati).")
                         else:
-                            st.info("☀️ **Rinnovo Estivo:** Il nuovo contratto si applica istantaneamente all'intera stagione in corso.")
-                            nuovo_amm = g_obj_r['valore_residuo'] / nuovi_anni if nuovi_anni > 0 else 0
+                            # --- SEZIONE DI RINNOVO NORMALE ---
+                            st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
                             
-                        st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
-                        
-                        if st.button("Firma Rinnovo"):
+                            nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 3)", 1, 3, 1, key="anni_rinnovo")
+                            nuovo_stipendio = g_obj_r['stipendio'] * 1.15
+                            
                             if is_gen_rin:
-                                g_obj_r['rinnovato_a_gennaio'] = True
-                                g_obj_r['vecchio_amm_gennaio'] = g_obj_r['ammortamento_annuo']
-                                g_obj_r['vecchio_stip_gennaio'] = g_obj_r['stipendio']
-                                g_obj_r['valore_residuo'] = vr_a_gennaio
+                                st.info("❄️ **Rinnovo Invernale:** Il sistema calcolerà l'impatto sul bilancio di quest'anno in modalità pro-quota (50% vecchio contratto, 50% nuovo contratto).")
+                                vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
+                                nuovo_amm = vr_a_gennaio / nuovi_anni if nuovi_anni > 0 else 0
+                            else:
+                                st.info("☀️ **Rinnovo Estivo:** Il nuovo contratto si applica istantaneamente all'intera stagione in corso.")
+                                nuovo_amm = g_obj_r['valore_residuo'] / nuovi_anni if nuovi_anni > 0 else 0
                                 
-                            g_obj_r['stipendio'] = nuovo_stipendio
-                            g_obj_r['costo_acquisto'] = g_obj_r['valore_residuo']
-                            g_obj_r['anni_contratto'] = nuovi_anni
-                            g_obj_r['ammortamento_annuo'] = nuovo_amm
-                            g_obj_r['anni_trascorsi'] = 0
+                            st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
                             
-                            if 'rinnovo_prenotato' in g_obj_r: del g_obj_r['rinnovo_prenotato']
-                            
-                            save_data(db, DB_PATH)
-                            st.success(f"Contratto di {g_obj_r['nome']} rinnovato ufficialmente!")
-                            st.rerun()
+                            if st.button("Firma Rinnovo"):
+                                if is_gen_rin:
+                                    g_obj_r['rinnovato_a_gennaio'] = True
+                                    g_obj_r['vecchio_amm_gennaio'] = g_obj_r['ammortamento_annuo']
+                                    g_obj_r['vecchio_stip_gennaio'] = g_obj_r['stipendio']
+                                    g_obj_r['valore_residuo'] = vr_a_gennaio
+                                    
+                                g_obj_r['stipendio'] = nuovo_stipendio
+                                g_obj_r['costo_acquisto'] = g_obj_r['valore_residuo']
+                                g_obj_r['anni_contratto'] = nuovi_anni
+                                g_obj_r['ammortamento_annuo'] = nuovo_amm
+                                g_obj_r['anni_trascorsi'] = 0
+                                
+                                if 'rinnovo_prenotato' in g_obj_r: del g_obj_r['rinnovo_prenotato']
+                                
+                                save_data(db, DB_PATH)
+                                st.success(f"Contratto di {g_obj_r['nome']} rinnovato ufficialmente!")
+                                st.rerun()
 
 # ==========================================
 # 4. MERCATO (PRESTITI)
@@ -960,6 +1073,9 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                 
                 # 1. AZZERAMENTO BILANCIO: Chiudiamo l'anno vecchio, apriamo l'anno nuovo
                 dati['bilancio'] = init_bilancio()
+                
+                # --- AZZERA LO STADIO: Li costringe a ri-firmarlo per la nuova stagione ---
+                dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
                 
                 # --- 1.5 INIEZIONE DI CAPITALE NUOVO ANNO (Diritti TV + Sponsor Prenotato) ---
                 # Inietta 50 Milioni freschi in CASSA per fare mercato
