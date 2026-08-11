@@ -167,10 +167,10 @@ if menu == "1. Setup Società":
             c1, c2 = st.columns(2)
             nome = c1.text_input("Nome Squadra")
             mister = c2.text_input("Allenatore")
-            if st.form_submit_button("Iscrivi Squadra (Fondo 350M)"):
+            if st.form_submit_button("Iscrivi Squadra (Fondo 500M)"):
                 if nome and mister and nome not in db:
                     db[nome] = {
-                        "allenatore": mister, "cassa": 350.0,
+                        "allenatore": mister, "cassa": 500.0,
                         "stadio": {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0},
                         "sponsor": {"nome": None, "valore": 0},
                         "rosa": [], "bilancio": init_bilancio()
@@ -189,9 +189,9 @@ if menu == "1. Setup Società":
             with col1:
                 st.subheader("Impianto Sportivo")
                 stadi = {
-                    "Categoria 1 (20.000 posti) - 5M Costo": {"livello": "20k", "costo": 5.0, "base": 0.1, "pari": 0.2, "vittoria": 0.4},
-                    "Categoria 2 (50.000 posti) - 12M Costo": {"livello": "50k", "costo": 12.0, "base": 0.3, "pari": 0.5, "vittoria": 0.9},
-                    "Categoria 3 (80.000 posti) - 20M Costo": {"livello": "80k", "costo": 20.0, "base": 0.6, "pari": 1.0, "vittoria": 1.5}
+                    "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
+                    "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
+                    "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
                 }
                 scelta = st.selectbox("Livello", list(stadi.keys()))
                 if st.button("Firma Contratto Stadio"):
@@ -205,25 +205,26 @@ if menu == "1. Setup Società":
                 ns = st.text_input("Nome Sponsor", value=sq_dati["sponsor"]["nome"] or "")
                 
                 if st.button("Firma Accordo Sponsor"):
-                    sq_dati["sponsor"] = {"nome": ns, "valore": 30.0}
-                    # Accredita i 30M solo se la voce sponsor a bilancio è ancora a zero
+                    sq_dati["sponsor"] = {"nome": ns, "valore": 40.0}
+                    # Accredita i 40M solo se la voce sponsor a bilancio è ancora a zero
                     if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
-                        sq_dati["bilancio"]["ricavi"]["sponsor"] = 30.0
-                        sq_dati["cassa"] = round(sq_dati["cassa"] + 30.0, 2)
-                        sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +30.0M")
+                        sq_dati["bilancio"]["ricavi"]["sponsor"] = 40.0
+                        sq_dati["cassa"] = round(sq_dati["cassa"] + 40.0, 2)
+                        sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +40.0M")
                     
                     save_data(db, DB_PATH)
-                    st.success(f"Sponsor {ns} firmato! 30 Milioni accreditati in Cassa e a Bilancio per la stagione 1.")
+                    st.success(f"Sponsor {ns} firmato! 40 Milioni accreditati in Cassa e a Bilancio per la stagione 1.")
 
 # ==========================================
 # 2. DASHBOARD & ROSA (MODERN UI V5 - DEFINITIVA)
 # ==========================================
 elif menu == "2. Dashboard & Rosa":
     
+    st.header("📊 Dashboard & Rosa") # <-- AGGIUNTO IL TITOLO!
+    
     # --- CSS PER IL TEMA E LA TABELLA CUSTOM ---
     st.markdown("""
     <style>
-    .stApp { background-color: #F4F7FC; }
     
     /* Stile per le metriche in alto */
     div[data-testid="metric-container"] {
@@ -235,8 +236,6 @@ elif menu == "2. Dashboard & Rosa":
         box-shadow: 0 4px 6px rgba(0,0,0,0.03);
     }
     
-    .block-container { padding-top: 2rem; }
-
     /* Stile per la tabella Roster Custom */
     .roster-table {
         width: 100%;
@@ -369,7 +368,7 @@ elif menu == "2. Dashboard & Rosa":
             
             if giocatori_con_costo:
                 html_table = "<table class='roster-table'>"
-                html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Res.</th><th>Acquisto</th><th>Ammort.</th><th>Stipendio</th><th>Costo Bilancio</th><th>Val. Residuo</th></tr>"
+                html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Residui</th><th>Costo Acquisto</th><th>Ammortamento</th><th>Stipendio</th><th>Costo Bilancio</th><th>Valore Residuo</th></tr>"
                 
                 for g in giocatori_con_costo:
                     html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['anni']}</td><td>{g['acquisto']:.2f} M</td><td>{g['amm']:.2f} M</td><td>{g['stip']:.2f} M</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']:.2f} M</td><td><strong>{g['val_res']:.2f} M</strong></td></tr>"
@@ -378,6 +377,23 @@ elif menu == "2. Dashboard & Rosa":
                 st.markdown(html_table, unsafe_allow_html=True)
             else:
                 st.info("Nessun giocatore attualmente in rosa.")
+
+            # --- TABELLA GIOCATORI IN PRESTITO ALTROVE ---
+            giocatori_fuori = [g for g in squadra['rosa'] if g.get("prestato_a")]
+            if giocatori_fuori:
+                st.markdown("<br>##### ✈️ Giocatori in Prestito Altrove", unsafe_allow_html=True)
+                
+                # Tabella leggermente trasparente per far capire che non sono attivi
+                html_fuori = "<table class='roster-table' style='opacity: 0.85;'>"
+                html_fuori += "<tr><th>Nome</th><th>Ruolo</th><th>In prestito a</th><th>Stipendio (Loro carico)</th><th>Ammortamento (Tuo carico)</th></tr>"
+                
+                for g in giocatori_fuori:
+                    perc_pagata_da_loro = g.get('perc_stipendio_pagato', 100)
+                    # Scritto su una riga per evitare bug di visualizzazione Markdown
+                    html_fuori += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['prestato_a']}</td><td><span style='color: #10B981; font-weight: 600;'>{perc_pagata_da_loro}%</span></td><td><span style='color: #EF4444; font-weight: 600;'>{g['ammortamento_annuo']:.2f} M</span></td></tr>"
+                    
+                html_fuori += "</table>"
+                st.markdown(html_fuori, unsafe_allow_html=True)
 
         with col_dx:
             # WIDGET 1: Dettaglio Voci
@@ -460,7 +476,7 @@ elif menu == "3. Mercato (Definitivi)":
                     c = col3.number_input("Prezzo Acquisto (MLN)", min_value=1.0, step=1.0)
                     anni = st.slider("Anni Contratto", 1, 5, 3)
                     
-                    s_base = 0.5 if c <= 10 else (1.5 if c <= 30 else (3.0 if c <= 60 else (5.0 if c <= 90 else 8.0)))
+                    s_base = 1.0 if c <= 15 else (2.5 if c <= 45 else (4.5 if c <= 85 else (7.0 if c <= 130 else 11.0)))
                     
                     is_gennaio = True if "Invernale" in sessione_acq else False
                     anni_effettivi = anni - 0.5 if is_gennaio else anni
@@ -552,25 +568,24 @@ elif menu == "3. Mercato (Definitivi)":
                         sessione_rin = st.radio("Quando avviene il rinnovo?", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Metà Stagione)"], horizontal=True)
                         is_gen_rin = "Invernale" in sessione_rin
                         
-                        # --- NUOVA LOGICA: BLOCCO RINNOVO IMMEDIATO ---
-                        anni_residui = g_obj_r['anni_contratto'] - g_obj_r.get('anni_trascorsi', 0)
+                        # --- NUOVA LOGICA: BLOCCO RINNOVO IMMEDIATO (ANTI-ELUSIONE TOTALE) ---
                         blocco_recente = False
                         msg_blocco = ""
                         
-                        # Se ha > 1 anno di contratto ED è al suo primo anno nel club (appena arrivato)
-                        if anni_residui > 1 and g_obj_r.get('anni_trascorsi', 0) == 0:
+                        # Se il giocatore è al suo "anno zero" nel club (cioè è stato acquistato in questa stagione)
+                        if g_obj_r.get('anni_trascorsi', 0) == 0:
                             # Comprato in estate, provi a rinnovare in estate
                             if not g_obj_r.get('acquistato_a_gennaio') and not is_gen_rin:
                                 blocco_recente = True
-                                msg_blocco = "Hai acquistato o rinnovato questo giocatore in questa sessione Estiva. Potrai rinegoziare a partire da Gennaio."
+                                msg_blocco = "Hai appena acquistato questo giocatore (Sessione Estiva). Non puoi rinnovarlo immediatamente per eludere l'ammortamento. Potrai rinegoziare il suo contratto solo a partire dalla sessione di Gennaio."
                             # Comprato a gennaio, provi a rinnovare a gennaio
                             elif g_obj_r.get('acquistato_a_gennaio') and is_gen_rin:
                                 blocco_recente = True
-                                msg_blocco = "Hai acquistato questo giocatore in questa sessione Invernale. Potrai rinegoziare a partire dalla prossima Estate."
+                                msg_blocco = "Hai acquistato questo giocatore in questa sessione Invernale. Le regole non permettono un rinnovo istantaneo."
                         
                         # Se scatta il blocco, mostriamo l'avviso e NASCONDIAMO i tasti di rinnovo
                         if blocco_recente:
-                            st.warning(f"✋ **Operazione Bloccata.** {msg_blocco} (Eccezione: I giocatori in scadenza possono sempre essere rinnovati).")
+                            st.warning(f"✋ **Operazione Bloccata.** {msg_blocco}")
                         else:
                             # --- SEZIONE DI RINNOVO NORMALE ---
                             st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
@@ -809,8 +824,8 @@ elif menu == "6. Classifica Campionato":
         st.divider()
         if st.button("Distribuisci Premi Campionato, Sponsor & Conguagli (Solo a fine anno)"):
             squadre_ordinate = df_c.index.tolist()
-            premi_sponsor = [50.0, 46.0, 42.0, 38.0, 35.0, 32.0, 30.0, 30.0]
-            premi_campionato = [35.0, 36.0, 38.0, 40.0, 43.0, 45.0, 48.0, 50.0]
+            premi_sponsor = [70.0, 65.0, 60.0, 55.0, 50.0, 45.0, 42.0, 40.0]
+            premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
             
             # --- CONTEGGIO PARTITE IN CASA ---
             partite_in_casa = {s: 0 for s in db.keys()}
@@ -915,12 +930,12 @@ elif menu == "7. Coppe (Italia & CL)":
                 if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia (Bilancio e Cassa)", type="primary"):
                     vincente = m['vincente']
                     perdente = m['home'] if vincente == m['away'] else m['away']
-                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
+                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
                     db[vincente]['cassa'] += 25.0
-                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 15.0
+                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 20.0
                     db[perdente]['cassa'] += 15.0
                     for sq in coppe["ci"]["perse_semis"]: 
-                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 5.0
+                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 10.0
                         db[sq]['cassa'] += 5.0
                     coppe["ci"]["premi_dati"] = True
                     save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
@@ -1011,12 +1026,12 @@ elif menu == "7. Coppe (Italia & CL)":
                 if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions (Bilancio e Cassa)", type="primary"):
                     vincente = m['vincente']
                     perdente = m['home'] if vincente == m['away'] else m['away']
-                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
+                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 50.0
                     db[vincente]['cassa'] += 35.0
-                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 25.0
+                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
                     db[perdente]['cassa'] += 25.0
                     for sq in coppe["cl"]["perse_semis"]: 
-                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 15.0
+                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 20.0
                         db[sq]['cassa'] += 15.0
                     coppe["cl"]["premi_dati"] = True
                     save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
@@ -1078,11 +1093,11 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                 dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
                 
                 # --- 1.5 INIEZIONE DI CAPITALE NUOVO ANNO (Diritti TV + Sponsor Prenotato) ---
-                # Inietta 50 Milioni freschi in CASSA per fare mercato
+                # Inietta 70 Milioni freschi in CASSA per fare mercato
                 dati['cassa'] += 50.0
                 # E li registra regolarmente nei RICAVI della nuova stagione
-                dati['bilancio']['ricavi']['nuovo_capitale'] = 50.0
-                dati['bilancio']['storico_movimenti'].append("Iniezione Nuovo Capitale: +50.0M (Cassa e Ricavi)")
+                dati['bilancio']['ricavi']['nuovo_capitale'] = 70.0
+                dati['bilancio']['storico_movimenti'].append("Iniezione Nuovo Capitale: +70.0M (Cassa e Ricavi)")
                 
                 # Eroga lo Sponsor calcolato alla fine della stagione precedente!
                 # (Se non c'è una prenotazione - ovvero il 1° anno - eroga 0.0)
@@ -1110,7 +1125,7 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                             g['costo_acquisto'] = g['valore_residuo'] = prezzo_r
                             g['anni_contratto'] = anni_nuovi
                             g['ammortamento_annuo'] = prezzo_r / anni_nuovi if anni_nuovi > 0 else 0
-                            g['stipendio'] = 0.5 if prezzo_r <= 10 else (1.5 if prezzo_r <= 30 else (3.0 if prezzo_r <= 60 else (5.0 if prezzo_r <= 90 else 8.0)))
+                            g['stipendio'] = 1.0 if prezzo_r <= 15 else (2.5 if prezzo_r <= 45 else (4.5 if prezzo_r <= 85 else (7.0 if prezzo_r <= 130 else 11.0)))
                             g['anni_trascorsi'] = 0
                             nuova_rosa.append(g)
                         else:
@@ -1230,7 +1245,7 @@ elif menu == "9. Regolamento Ufficiale":
     * **Il Bilancio d'Esercizio:** Rappresenta il documento contabile di fine stagione che riepiloga i Costi e i Ricavi imputabili al singolo anno sportivo, al fine di determinare il risultato d'esercizio (Utile o Perdita) e valutare il rispetto del Fair Play Finanziario. Il Bilancio viene azzerato al termine di ogni stagione sportiva.
     
     ### 1.1 Capitale Sociale Iniziale (Anno 1)
-    All'atto della costituzione delle società sportive, la Direzione provvede all'assegnazione di un fondo iniziale pari a **350 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
+    All'atto della costituzione delle società sportive, la Direzione provvede all'assegnazione di un fondo iniziale pari a **500 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
     """)
     st.info("**Nota:** Al fine di non alterare i parametri del Fair Play Finanziario, tale somma iniziale transita **esclusivamente nella Cassa reale** e non concorre in alcun modo a formare il Valore della Produzione (Ricavi) del primo Bilancio d'Esercizio.")
 
@@ -1244,33 +1259,33 @@ elif menu == "9. Regolamento Ufficiale":
     ### 2.1 Impianti Sportivi
     Ciascuna società ha l'obbligo di selezionare la capienza del proprio impianto sportivo. Da tale scelta derivano specifici oneri fissi di gestione (da imputare nei Costi di Bilancio) e proventi legati ai risultati delle partite disputate in casa (da imputare in Cassa e nei Ricavi di Bilancio):
     * **Impianto di 1ª Categoria (20.000 posti):**
-      * Costo fisso annuo: **5 milioni**
-      * Incasso base per partita: **0.1 milioni**
-      * Incasso totale in caso di pareggio: **0.2 milioni**
-      * Incasso totale in caso di vittoria: **0.4 milioni**
+      * Costo fisso annuo: **7 milioni**
+      * Incasso base per partita: **0.2 milioni**
+      * Incasso totale in caso di pareggio: **0.3 milioni**
+      * Incasso totale in caso di vittoria: **0.6 milioni**
     * **Impianto di 2ª Categoria (50.000 posti):**
-      * Costo fisso annuo: **12 milioni**
-      * Incasso base per partita: **0.3 milioni**
-      * Incasso totale in caso di pareggio: **0.5 milioni**
-      * Incasso totale in caso di vittoria: **0.9 milioni**
+      * Costo fisso annuo: **17 milioni**
+      * Incasso base per partita: **0.4 milioni**
+      * Incasso totale in caso di pareggio: **0.7 milioni**
+      * Incasso totale in caso di vittoria: **1.3 milioni**
     * **Impianto di 3ª Categoria (80.000 posti):**
-      * Costo fisso annuo: **20 milioni**
-      * Incasso base per partita: **0.6 milioni**
-      * Incasso totale in caso di pareggio: **1.0 milioni**
-      * Incasso totale in caso di vittoria: **1.5 milioni**
+      * Costo fisso annuo: **28 milioni**
+      * Incasso base per partita: **0.8 milioni**
+      * Incasso totale in caso di pareggio: **1.4 milioni**
+      * Incasso totale in caso di vittoria: **2.1 milioni**
     
     ### 2.2 Sponsorizzazioni Commerciali
-    Ciascuna società ha diritto alla sottoscrizione di un accordo di Main Sponsorship. Per la prima stagione di fondazione della Lega, al fine di garantire l'operatività e la sostenibilità iniziale, tutte le società percepiscono una quota fissa d'ingresso pari a **30 milioni**. 
+    Ciascuna società ha diritto alla sottoscrizione di un accordo di Main Sponsorship. Per la prima stagione di fondazione della Lega, al fine di garantire l'operatività e la sostenibilità iniziale, tutte le società percepiscono una quota fissa d'ingresso pari a **40 milioni**. 
 
     A partire dalla seconda stagione, l'importo erogato dallo sponsor all'inizio di ogni anno sportivo è calcolato esclusivamente in base al piazzamento ottenuto nella classifica generale della stagione antecedente:
-    * **1ª Classificata:** 50 milioni
-    * **2ª Classificata:** 46 milioni
-    * **3ª Classificata:** 42 milioni
-    * **4ª Classificata:** 38 milioni
-    * **5ª Classificata:** 35 milioni
-    * **6ª Classificata:** 32 milioni
-    * **7ª Classificata:** 30 milioni
-    * **8ª Classificata:** 30 milioni
+    * **1ª Classificata:** 70 milioni
+    * **2ª Classificata:** 65 milioni
+    * **3ª Classificata:** 60 milioni
+    * **4ª Classificata:** 55 milioni
+    * **5ª Classificata:** 50 milioni
+    * **6ª Classificata:** 45 milioni
+    * **7ª Classificata:** 42 milioni
+    * **8ª Classificata:** 40 milioni
     """)
 
     st.divider()
@@ -1286,13 +1301,13 @@ elif menu == "9. Regolamento Ufficiale":
 
     ### 3.2 Vincoli Contrattuali e Compensi
     L'acquisizione di un calciatore comporta la contestuale stipula di un contratto di prestazione sportiva di durata compresa tra 1 e 5 anni. Tutti i contratti iniziano l'1 Gennaio oppure l'1 Luglio di ogni anno e terminano tutti il 30 Giugno. Il compenso annuale (Stipendio) costituisce un costo d'esercizio ricorrente, ed è parametrato al costo storico del cartellino:
-    * Costo d'acquisto da 1 a 10 milioni: Stipendio annuale di **0.5 milioni**
-    * Costo d'acquisto da 11 a 30 milioni: Stipendio annuale di **1.5 milioni**
-    * Costo d'acquisto da 31 a 60 milioni: Stipendio annuale di **3.0 milioni**
-    * Costo d'acquisto da 61 a 90 milioni: Stipendio annuale di **5.0 milioni**
-    * Costo d'acquisto da 91 milioni in su: Stipendio annuale di **8.0 milioni**
+    * Costo d'acquisto da 1 a 15 milioni: Stipendio annuale di **1.0 milioni**
+    * Costo d'acquisto da 16 a 45 milioni: Stipendio annuale di **2.5 milioni**
+    * Costo d'acquisto da 46 a 85 milioni: Stipendio annuale di **4.5 milioni**
+    * Costo d'acquisto da 86 a 130 milioni: Stipendio annuale di **7.0 milioni**
+    * Costo d'acquisto da 131 milioni in su: Stipendio annuale di **11.0 milioni**
     
-    Eventuali rinnovi contrattuali, da formalizzarsi prima della naturale scadenza (ovvero prima del 30 Giugno dell'ultimo anno di contratto), comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere. Una volta scaduto il contratto di un giocatore non è più possibile firmare il rinnovo.
+    Eventuali rinnovi contrattuali comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere. **La durata massima consentita per un rinnovo è di 3 anni.** Una volta scaduto il contratto di un giocatore non è più possibile firmare il rinnovo.
     """)
 
     st.divider()
@@ -1327,7 +1342,7 @@ elif menu == "9. Regolamento Ufficiale":
     Le operazioni di mercato concluse durante la sessione di Gennaio sono soggette a un trattamento contabile specifico, volto a riflettere l'utilizzo del calciatore per il solo girone di ritorno (6 mesi).
     1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
     2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza. Tale regola si applica anche nell'eventualità in cui il calciatore venga immediatamente girato in prestito altrove.
-    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la mezza quota di ammortamento maturata nel semestre di permanenza.
+    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza.
     4. **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
     
     ### 4.3 Cessione a Titolo Definitivo e Rilevazione di Plusvalenze/Minusvalenze
@@ -1358,12 +1373,12 @@ elif menu == "9. Regolamento Ufficiale":
     ### 4.4 Trasferimenti a Titolo Temporaneo (Prestiti)
     Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: prestito secco, prestito con diritto di riscatto e prestito con obbligo di riscatto.
 
-    **Vincoli per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, **è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso**. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
+    **Regola UEFA per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, **è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso**. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
 
     **Prestito Oneroso e Impatto Contabile Immediato:** L'eventuale onere in denaro pattuito per l'affitto temporaneo genera un impatto istantaneo: l'importo viene detratto immediatamente dalla Liquidità dell'acquirente e versato alla cedente. A livello di Bilancio, per l'esercizio in corso, l'importo costituisce una **Plusvalenza** per la cedente e una **Minusvalenza** (costo di locazione) per l'acquirente.
 
-    **Ammortamenti e Oneri Salariali durante il prestito:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
-    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino).
+    **Ammortamenti e Oneri Salariali:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
+    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio. Tali calciatori, pur non essendo nella rosa attiva, figurano in un apposito registro del gestionale per garantire il monitoraggio del loro impatto finanziario.
     * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a libera contrattazione (es. 50% e 50%, 100% all'acquirente, ecc.). Le quote proporzionali pattuite si rifletteranno sul "Monte Ingaggi" dei rispettivi Bilanci.
     * **💡 Condivisione Stipendi Invernale (Il calcolo del 25%):** In caso di prestito stipulato nella sessione di Gennaio con condivisione dell'ingaggio (es. si concorda di far pagare all'acquirente il 50% dello stipendio per i soli 6 mesi restanti), la percentuale da inserire nel gestionale dovrà essere **dimezzata a 25%**. Questo perché il sistema applica la percentuale di compartecipazione sull'intero monte ingaggi annuale del calciatore alla fine dell'esercizio.
 
@@ -1386,7 +1401,9 @@ elif menu == "9. Regolamento Ufficiale":
     ### 4.6 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento (Spalmatura)
     Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato in qualsiasi momento prima della naturale scadenza (ad eccezione dei giocatori attualmente in prestito, che devono essere prima richiamati alla base).
     
-    **La Nuova Durata:** Il rinnovo non "somma" anni al vecchio contratto, bensì lo **sovrascrive**. Selezionare ad esempio "3 Anni" significa che il giocatore rimarrà vincolato alla società per la stagione sportiva in corso più le successive due.
+    Per contrastare elusioni contabili, **è severamente vietato rinnovare un calciatore nella stessa esatta sessione di mercato in cui è stato acquistato**. Anche un giocatore acquistato nella sessione Estiva con un contratto di 1 anno, non potrà essere rinnovato immediatamente: la società dovrà sostenerne il costo d'ammortamento pieno e potrà proporre un rinnovo contrattuale solo all'apertura della successiva sessione Invernale (Gennaio), la quale ricalcolerà i costi in modalità pro-quota. I calciatori presenti in rosa dalle stagioni precedenti possono invece essere rinnovati in qualsiasi sessione.
+    
+    **La Nuova Durata:** Il rinnovo non "somma" anni al vecchio contratto, bensì lo **sovrascrive**, per un prolungamento **massimo di 3 anni**. Selezionare ad esempio "3 Anni" significa che il giocatore rimarrà vincolato alla società per la stagione sportiva in corso più le successive due.
     
     La sottoscrizione di un rinnovo produce effetti contabili **immediati** sul Bilancio d'Esercizio in corso, ma con differenti logiche in base alla sessione:
     * **☀️ Rinnovo Estivo (Inizio Stagione):** Lo stipendio annuale subisce un incremento obbligatorio del +15%. Il Valore Residuo attuale viene "spalmato" sui nuovi anni scelti, abbassando istantaneamente la Quota di Ammortamento annuale e fornendo un utile strumento per alleggerire il Bilancio della stagione in corso.
@@ -1426,14 +1443,14 @@ elif menu == "9. Regolamento Ufficiale":
 
     ### 5.1 Campionato di Lega
     Al fine di garantire la competitività, l'equilibrio della Lega nel lungo periodo e agevolare la ricostruzione finanziaria, l'ammontare dei premi di Campionato è distribuito seguendo un criterio che privilegia i posizionamenti inferiori:
-    * **1ª Classificata:** 35 milioni
-    * **2ª Classificata:** 36 milioni
-    * **3ª Classificata:** 38 milioni
-    * **4ª Classificata:** 40 milioni
-    * **5ª Classificata:** 43 milioni
-    * **6ª Classificata:** 45 milioni
-    * **7ª Classificata:** 48 milioni
-    * **8ª Classificata:** 50 milioni
+    * **1ª Classificata:** 50 milioni
+    * **2ª Classificata:** 52 milioni
+    * **3ª Classificata:** 55 milioni
+    * **4ª Classificata:** 58 milioni
+    * **5ª Classificata:** 62 milioni
+    * **6ª Classificata:** 65 milioni
+    * **7ª Classificata:** 68 milioni
+    * **8ª Classificata:** 70 milioni
     
     ### 5.2 Coppa Italia
     La Coppa Italia si articola in tre turni a eliminazione diretta, disputati interamente in **gara secca**.
@@ -1444,9 +1461,9 @@ elif menu == "9. Regolamento Ufficiale":
     * **Finale:** 35ª Giornata di Campionato
     
     **Proventi Sportivi:**
-    * **1ª Classificata (Vincitrice):** 25 milioni
-    * **2ª Classificata (Finalista):** 15 milioni
-    * **3ª e 4ª Classificata (Semifinaliste):** 5 milioni
+    * **1ª Classificata (Vincitrice):** 35 milioni
+    * **2ª Classificata (Finalista):** 20 milioni
+    * **3ª e 4ª Classificata (Semifinaliste):** 10 milioni
 
     ### 5.3 Champions League
     La Champions League si struttura in una fase iniziale composta da **due gironi all'italiana da 4 squadre** (con incontri di andata e ritorno), seguita da Semifinali (con incontri di andata e ritorno) e da una Finale in gara secca in campo neutro.
@@ -1457,9 +1474,9 @@ elif menu == "9. Regolamento Ufficiale":
     * **Finale:** 36ª Giornata di Campionato
     
     **Proventi Sportivi (Meritocratici):**
-    * **1ª Classificata (Vincitrice):** 35 milioni
-    * **2ª Classificata (Finalista):** 25 milioni
-    * **3ª e 4ª Classificata (Semifinaliste):** 15 milioni
+    * **1ª Classificata (Vincitrice):** 50 milioni
+    * **2ª Classificata (Finalista):** 35 milioni
+    * **3ª e 4ª Classificata (Semifinaliste):** 20 milioni
     """)
 
     st.divider()
@@ -1472,10 +1489,10 @@ elif menu == "9. Regolamento Ufficiale":
     ### 6.1 Valore della Produzione (Ricavi d'Esercizio)
     Concorrono alla formazione dei ricavi le seguenti voci:
     * **Premi Sportivi:** Introiti accreditati a bilancio a seguito dei piazzamenti finali nelle competizioni ufficiali.
-    * **Proventi da Sponsorizzazione:** Quota erogata all'apertura dell'esercizio (pari a 30 milioni fissi per tutti durante la prima stagione sportiva di fondazione; dalla seconda stagione in poi, determinata con criterio meritocratico in base alla classifica finale dell'anno precedente).
+    * **Proventi da Sponsorizzazione:** Quota erogata all'apertura dell'esercizio (pari a 40 milioni fissi per tutti durante la prima stagione sportiva di fondazione; dalla seconda stagione in poi, determinata con criterio meritocratico in base alla classifica finale dell'anno precedente).
     * **Proventi da Stadio:** Somma matematica dei ricavi lordi per singola partita disputata nell'impianto di proprietà.
     * **Plusvalenze Patrimoniali:** Utili generati dalla cessione dei diritti sulle prestazioni sportive.
-    * **Nuovo Capitale:** Iniezione di liquidità garantita dalla Lega (pari a 50 milioni) iscritta a Bilancio all'apertura di ogni nuovo esercizio contabile **(esclusivamente a partire dalla seconda stagione)**.
+    * **Nuovo Capitale:** Iniezione di liquidità garantita dalla Lega (pari a 70 milioni) iscritta a Bilancio all'apertura di ogni nuovo esercizio contabile **(esclusivamente a partire dalla seconda stagione)**.
 
     ### 6.2 Costi della Produzione (Oneri d'Esercizio)
     Concorrono alla formazione dei costi le seguenti voci:
@@ -1494,6 +1511,6 @@ elif menu == "9. Regolamento Ufficiale":
     2. **Verifica del Fair Play Finanziario:** Viene calcolato il Risultato d'Esercizio del Bilancio (Ricavi - Costi).
        * 🟢 **Risultato Positivo (Utile d'Esercizio):** La società ha rispettato i parametri economici. Non avviene alcun prelievo aggiuntivo. (L'utile non si somma alla Cassa in quanto gli introiti dei ricavi sono già stati percepiti nel corso dell'anno).
        * 🔴 **Risultato Negativo (Perdita d'Esercizio):** La società ha violato i parametri UEFA vivendo al di sopra delle proprie possibilità. Scatta l'obbligo di ricapitalizzazione immediata: **un importo pari all'intera Perdita certificata viene prelevato coattivamente e sottratto dalla Cassa societaria** per ripianare il debito.
-    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi e gli svincoli a parametro zero.
-    4. **Apertura del Nuovo Esercizio e Iniezioni di Capitale:** (Fase attiva a partire dalla seconda stagione). Il sistema provvede a immettere **nuova liquidità in Cassa**: accredita istantaneamente i **50 milioni** del nuovo capitale, unitamente ai **Proventi dello Sponsor** maturati grazie alla classifica dell'anno appena concluso. Le stesse identiche voci vengono iscritte nei nuovi Ricavi a Bilancio, fornendo alle società la base operativa su cui fondare il mercato della nuova stagione.
+    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi prenotati e gli svincoli a parametro zero.
+    4. **Apertura del Nuovo Esercizio e Iniezioni di Capitale:** (Fase attiva a partire dalla seconda stagione). Il sistema provvede a immettere **nuova liquidità in Cassa**: accredita istantaneamente i **70 milioni** del nuovo capitale, unitamente ai **Proventi dello Sponsor** maturati grazie alla classifica dell'anno appena concluso. Le stesse identiche voci vengono iscritte nei nuovi Ricavi a Bilancio, fornendo alle società la base operativa su cui fondare il mercato della nuova stagione.
     """)
