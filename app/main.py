@@ -111,7 +111,7 @@ if not st.session_state.is_admin:
     elif pwd:
         st.sidebar.error("Password errata")
 else:
-    st.sidebar.success("👑 Modalità Admin Attiva")
+    st.sidebar.success("👑 Modalità Admin")
     if st.sidebar.button("Logout"):
         st.session_state.is_admin = False
         st.rerun()
@@ -381,16 +381,18 @@ elif menu == "2. Dashboard & Rosa":
             # --- TABELLA GIOCATORI IN PRESTITO ALTROVE ---
             giocatori_fuori = [g for g in squadra['rosa'] if g.get("prestato_a")]
             if giocatori_fuori:
-                st.markdown("<br>##### ✈️ Giocatori in Prestito Altrove", unsafe_allow_html=True)
+                st.write("") # Aggiunge uno spazio pulito invece del <br> problematico
+                st.markdown("##### ✈️ Giocatori in Prestito Altrove")
                 
                 # Tabella leggermente trasparente per far capire che non sono attivi
                 html_fuori = "<table class='roster-table' style='opacity: 0.85;'>"
-                html_fuori += "<tr><th>Nome</th><th>Ruolo</th><th>In prestito a</th><th>Stipendio (Loro carico)</th><th>Ammortamento (Tuo carico)</th></tr>"
+                html_fuori += "<tr><th>Nome</th><th>Ruolo</th><th>Prestato a</th><th>Anni Residui</th><th>Ammortamento</th><th>Stipendio</th><th>% Stipendio</th><th>Valore Residuo</th></tr>"
                 
                 for g in giocatori_fuori:
                     perc_pagata_da_loro = g.get('perc_stipendio_pagato', 100)
-                    # Scritto su una riga per evitare bug di visualizzazione Markdown
-                    html_fuori += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['prestato_a']}</td><td><span style='color: #10B981; font-weight: 600;'>{perc_pagata_da_loro}%</span></td><td><span style='color: #EF4444; font-weight: 600;'>{g['ammortamento_annuo']:.2f} M</span></td></tr>"
+                    anni_res_fuori = g['anni_contratto'] - g.get('anni_trascorsi', 0)
+                    
+                    html_fuori += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['prestato_a']}</td><td>{anni_res_fuori}</td><td><span style='color: #EF4444;'>{g['ammortamento_annuo']:.2f} M</span></td><td>{g['stipendio']:.2f} M</td><td><span style='color: #10B981; font-weight: 600;'>{perc_pagata_da_loro}%</span></td><td><strong>{g['valore_residuo']:.2f} M</strong></td></tr>"
                     
                 html_fuori += "</table>"
                 st.markdown(html_fuori, unsafe_allow_html=True)
@@ -467,7 +469,7 @@ elif menu == "3. Mercato (Definitivi)":
             
             with t1:
                 with st.form("buy"):
-                    sessione_acq = st.radio("Sessione di Mercato", ["☀️ Estiva (Stagione Intera)", "❄️ Invernale / Gennaio (Mezza Stagione)"], horizontal=True)
+                    sessione_acq = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True)
                     st.divider()
                     
                     col1, col2, col3 = st.columns(3)
@@ -512,7 +514,7 @@ elif menu == "3. Mercato (Definitivi)":
                     elif g_obj.get("in_prestito_da"):
                         st.error(f"❌ Operazione Illegale. Non puoi vendere {g_obj['nome']} perché è di proprietà di: {g_obj['in_prestito_da']}.")
                     else:
-                        sessione_ven = st.radio("Sessione Cessione", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Mezza Stagione)"], horizontal=True, key="sess_ven")
+                        sessione_ven = st.radio("Sessione Cessione", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_ven")
                         val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2) if "Invernale" in sessione_ven else g_obj['valore_residuo']
                         st.write(f"Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
                         
@@ -541,11 +543,11 @@ elif menu == "3. Mercato (Definitivi)":
                     elif g_obj_s.get("in_prestito_da"):
                         st.error(f"❌ Non puoi svincolare un giocatore in prestito. Proprietà: {g_obj_s['in_prestito_da']}. Usa l'Interruzione Prestito nel Menu 4.")
                     else:
-                        sessione_svin = st.radio("Sessione Svincolo", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_svin")
+                        sessione_svin = st.radio("Sessione Svincolo", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_svin")
                         val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2) if "Invernale" in sessione_svin else g_obj_s['valore_residuo']
                         st.error(f"Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
                         
-                        if st.button("Svincola Subito"):
+                        if st.button("Svincola Giocatore"):
                             if "Invernale" in sessione_svin:
                                 squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
                             
@@ -565,7 +567,7 @@ elif menu == "3. Mercato (Definitivi)":
                     elif g_obj_r.get("in_prestito_da"):
                         st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} non è un tuo giocatore (Proprietà: {g_obj_r['in_prestito_da']}). Solo la società madre può fargli il rinnovo!")
                     else:
-                        sessione_rin = st.radio("Quando avviene il rinnovo?", ["☀️ Estiva (Inizio Stagione)", "❄️ Invernale / Gennaio (Metà Stagione)"], horizontal=True)
+                        sessione_rin = st.radio("Quando avviene il rinnovo?", ["☀️ Estiva", "❄️ Invernale"], horizontal=True)
                         is_gen_rin = "Invernale" in sessione_rin
                         
                         # --- NUOVA LOGICA: BLOCCO RINNOVO IMMEDIATO (ANTI-ELUSIONE TOTALE) ---
@@ -945,7 +947,7 @@ elif menu == "7. Coppe (Italia & CL)":
     with t_cl:
         st.subheader("Champions League")
         if not coppe["cl"]["gir_A"]:
-            if st.session_state.is_admin and st.button("Sorteggia Gironi CL"):
+            if st.session_state.is_admin and st.button("Sorteggia Gironi Champions League"):
                 teams = list(db.keys())
                 random.shuffle(teams)
                 coppe["cl"]["gir_A"] = teams[:4]
