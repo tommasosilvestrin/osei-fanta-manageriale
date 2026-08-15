@@ -8,6 +8,7 @@ import plotly.express as px
 from datetime import datetime
 import os
 import re
+from datetime import datetime, timedelta
 
 FEED_PATH = "feed_lega.json"
 
@@ -23,7 +24,13 @@ def save_feed(data):
 
 def log_evento(nome_squadra, icona, testo):
     feed = load_feed()
-    orario = datetime.now().strftime("%d/%m %H:%M") # Salva l'ora esatta!
+    
+    # --- FIX SICUREZZA: Se per errore il file JSON è un dizionario, forzalo a lista vuota ---
+    if not isinstance(feed, list):
+        feed = []
+        
+    orario = (datetime.utcnow() + timedelta(hours=2)).strftime("%d/%m %H:%M")    
+    
     # Inserisce la nuova notizia in CIMA alla lista
     feed.insert(0, {"data": orario, "squadra": nome_squadra, "icona": icona, "testo": testo})
     save_feed(feed)
@@ -149,7 +156,7 @@ if "is_admin" not in st.session_state:
 
 st.sidebar.title("🔐 Accesso")
 if not st.session_state.is_admin:
-    pwd = st.sidebar.text_input("Password Amministratore", type="password")
+    pwd = st.sidebar.text_input("Password Admin", type="password")
     if pwd == "osei":
         st.session_state.is_admin = True
         st.rerun()
@@ -236,50 +243,64 @@ if menu == "1. Setup Società":
 
         st.divider()
         if db:
-            sq_sel = st.selectbox("Seleziona Squadra (Stadio / Sponsor)", list(db.keys()))
+            sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
             sq_dati = db[sq_sel]
             
             col1, col2 = st.columns(2)
+            
             with col1:
-                st.subheader("Impianto Sportivo")
-                stadi = {
-                    "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
-                    "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
-                    "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
-                }
-                scelta = st.selectbox("Livello", list(stadi.keys()))
-                if st.button("Firma Contratto Stadio"):
-                    costo_nuovo = stadi[scelta]["costo"]
-                    costo_vecchio = sq_dati["bilancio"]["costi"]["gestione_stadio"]
-                    
-                    # Rimborsa l'eventuale stadio vecchio (se sta cambiando idea) e addebita il nuovo
-                    sq_dati["cassa"] = round(sq_dati["cassa"] + costo_vecchio - costo_nuovo, 2)
-                    
-                    sq_dati["stadio"] = stadi[scelta]
-                    sq_dati["bilancio"]["costi"]["gestione_stadio"] = costo_nuovo
-                    
-                    if costo_vecchio == 0:
-                        sq_dati['bilancio']['storico_movimenti'].append(f"Affitto Stadio ({stadi[scelta]['livello']}): -{costo_nuovo}M")
-                    
-                    save_data(db, DB_PATH)
-                    log_evento(sq_sel, "🏟️", f"ha ufficializzato il nuovo stadio ({stadi[scelta]['livello']}).")
-                    st.success(f"Stadio firmato! Pagato l'affitto annuale di {costo_nuovo}M dalla Cassa.")
+                st.subheader("Stadio")
+                # CONTROLLO: Se lo stadio è già stato scelto, nasconde il menu e mostra l'info
+                if sq_dati["stadio"].get("livello"):
+                    st.info(f"✅ **Stadio Confermato:** Impianto da {sq_dati['stadio']['livello']} posti.")
+                else:
+                    stadi = {
+                        "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
+                        "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
+                        "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
+                    }
+                    scelta = st.selectbox("Livello Stadio", list(stadi.keys()))
+                    if st.button("Firma Contratto Stadio"):
+                        costo_nuovo = stadi[scelta]["costo"]
+                        costo_vecchio = sq_dati["bilancio"]["costi"]["gestione_stadio"]
+                        
+                        # Rimborsa l'eventuale stadio vecchio (se sta cambiando idea) e addebita il nuovo
+                        sq_dati["cassa"] = round(sq_dati["cassa"] + costo_vecchio - costo_nuovo, 2)
+                        
+                        sq_dati["stadio"] = stadi[scelta]
+                        sq_dati["bilancio"]["costi"]["gestione_stadio"] = costo_nuovo
+                        
+                        if costo_vecchio == 0:
+                            sq_dati['bilancio']['storico_movimenti'].append(f"Affitto Stadio ({stadi[scelta]['livello']}): -{costo_nuovo}M")
+                        
+                        save_data(db, DB_PATH)
+                        log_evento(sq_sel, "🏟️", f"ha ufficializzato il nuovo stadio ({stadi[scelta]['livello']}).")
+                        st.toast(f"Stadio firmato! Pagato l'affitto annuale di {costo_nuovo}M.", icon="🏟️")
+                        st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
 
             with col2:
-                st.subheader("Main Sponsor")
-                ns = st.text_input("Nome Sponsor", value=sq_dati["sponsor"]["nome"] or "")
-                
-                if st.button("Firma Accordo Sponsor"):
-                    sq_dati["sponsor"] = {"nome": ns, "valore": 40.0}
-                    # Accredita i 40M solo se la voce sponsor a bilancio è ancora a zero
-                    if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
-                        sq_dati["bilancio"]["ricavi"]["sponsor"] = 40.0
-                        sq_dati["cassa"] = round(sq_dati["cassa"] + 40.0, 2)
-                        sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +40.0M")
+                st.subheader("Sponsor")
+                # CONTROLLO: Se lo sponsor ha già un nome, nasconde l'input e mostra l'info
+                if sq_dati["sponsor"].get("nome"):
+                    st.info(f"✅ **Sponsor Confermato:** Accordo siglato con {sq_dati['sponsor']['nome']}.")
+                else:
+                    ns = st.text_input("Nome Sponsor", value=sq_dati["sponsor"]["nome"] or "")
                     
-                    save_data(db, DB_PATH)
-                    log_evento(sq_sel, "💼", f"ha firmato il contratto di Sponsorizzazione Stagionale per **40.0 M**.")
-                    st.success(f"Sponsor {ns} firmato! 40 Milioni accreditati in Cassa e a Bilancio per la stagione 1.")
+                    if st.button("Firma Accordo Sponsor"):
+                        if ns.strip(): # Evita che qualcuno firmi lasciando il nome vuoto
+                            sq_dati["sponsor"] = {"nome": ns, "valore": 40.0}
+                            # Accredita i 40M solo se la voce sponsor a bilancio è ancora a zero
+                            if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
+                                sq_dati["bilancio"]["ricavi"]["sponsor"] = 40.0
+                                sq_dati["cassa"] = round(sq_dati["cassa"] + 40.0, 2)
+                                sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +40.0M")
+                            
+                            save_data(db, DB_PATH)
+                            log_evento(sq_sel, "💼", f"ha firmato il contratto di Sponsorizzazione Stagionale per **40.0 M**.")
+                            st.toast(f"Sponsor {ns} firmato! 40 Milioni accreditati.", icon="💼")
+                            st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
+                        else:
+                            st.warning("⚠️ Inserisci il nome dello sponsor prima di firmare!")
 
 # ==========================================
 # 2. DASHBOARD & ROSA (MODERN UI V5 - DEFINITIVA)
@@ -352,6 +373,8 @@ elif menu == "2. Dashboard & Rosa":
             amm = g['ammortamento_annuo']
             stip = g['stipendio']
             anni_res = g['anni_contratto'] - g.get('anni_trascorsi', 0)
+            # Se il numero è intero (es. 1.0), toglie il decimale trasformandolo in 1
+            anni_res = int(anni_res) if anni_res % 1 == 0 else anni_res
             
             if g.get('acquistato_a_gennaio') and g['anni_trascorsi'] == 0:
                 amm /= 2; stip /= 2
@@ -361,20 +384,68 @@ elif menu == "2. Dashboard & Rosa":
                 
             costo_reale_anno = 0
             
-            if not g.get("in_prestito_da"): 
+            # -----------------------------------------------
+            # INIZIO NUOVO BLOCCO FINANZIARIO E TABELLE
+            # -----------------------------------------------
+            if g.get("prestato_a"):
+                # 1. CEDUTO IN PRESTITO (Paga l'ammortamento totale + la quota stipendio che l'acquirente non paga)
                 tot_ammortamenti += amm
-                costo_reale_anno += amm 
+                perc_nostra = 100 - g.get('perc_stipendio_pagato', 100)
                 
-                if g.get("prestato_a"): 
-                    quota_stip = stip * ((100 - g.get('perc_stipendio_pagato', 0)) / 100)
-                    tot_ingaggi += quota_stip
-                    costo_reale_anno += quota_stip
-                else: 
-                    tot_ingaggi += stip
-                    costo_reale_anno += stip
+                if g.get('prestato_a_gennaio'):
+                    # La squadra madre l'ha avuto per 6 mesi interi, l'acquirente lo paga solo per l'altra metà
+                    quota_stip = (stip / 2) + ((stip / 2) * (perc_nostra / 100))
+                else:
+                    quota_stip = stip * (perc_nostra / 100)
                     
+                tot_ingaggi += quota_stip
+                
+            elif g.get("in_prestito_da"):
+                # 2. PRESO IN PRESTITO (Paga 0 ammortamento, paga solo la percentuale pattuita dello stipendio)
+                perc_loro_richiesta = g.get('perc_stipendio_pagato', 100)
+                
+                if g.get('prestato_a_gennaio'):
+                    # L'ha preso a gennaio, paga la % solo su mezza stagione!
+                    quota_stip = (stip / 2) * (perc_loro_richiesta / 100)
+                else:
+                    quota_stip = stip * (perc_loro_richiesta / 100)
+                    
+                tot_ingaggi += quota_stip
+                costo_reale_anno += quota_stip
+                anni_prestito = g.get('anni_prestito_rimanenti', 1)
+                
+                giocatori_con_costo.append({
+                    "nome": f"{g['nome']} 🤝",
+                    "ruolo": g['ruolo'], 
+                    "anni_raw": anni_prestito, 
+                    "anni_str": str(anni_prestito),
+                    "acquisto": "Prestito", 
+                    "amm": "0.00 M", 
+                    "stip": f"{quota_stip:.2f} M", 
+                    "val_res": "0.00 M", 
+                    "costo_totale": f"{quota_stip:.2f} M"
+                })
+                
+            else:
+                # 3. GIOCATORE NORMALE DI PROPRIETÀ IN ROSA
+                tot_ingaggi += stip
+                tot_ammortamenti += amm
+                costo_reale_anno = stip + amm
+                
+                giocatori_con_costo.append({
+                    "nome": g['nome'], 
+                    "ruolo": g['ruolo'], 
+                    "anni_raw": anni_res,
+                    "anni_str": str(anni_res),
+                    "acquisto": f"{g['costo_acquisto']:.2f} M", 
+                    "amm": f"{amm:.2f} M", 
+                    "stip": f"{stip:.2f} M", 
+                    "val_res": f"{g['valore_residuo']:.2f} M", 
+                    "costo_totale": f"{costo_reale_anno:.2f} M"
+                })
+
                 # SIMULAZIONE RINNOVO
-                if not g.get("prestato_a") and anni_res <= 2:
+                if anni_res <= 2:
                     costo_attuale_regime = g['ammortamento_annuo'] + g['stipendio']
                     nuovo_stipendio = g['stipendio'] * 1.15
                     nuovo_ammortamento = g['valore_residuo'] / 3
@@ -383,21 +454,11 @@ elif menu == "2. Dashboard & Rosa":
                     
                     if risparmio > 0:
                         opportunita_rinnovo.append({
-                            "nome": g['nome'],
-                            "anni_res": anni_res,
-                            "risparmio": risparmio
+                            "nome": g['nome'], "anni_res": anni_res, "risparmio": risparmio
                         })
-            else: 
-                quota_stip = stip * (g.get('perc_stipendio_pagato', 100) / 100)
-                tot_ingaggi += quota_stip
-                costo_reale_anno += quota_stip
-                
-            if not g.get("prestato_a"): 
-                giocatori_con_costo.append({
-                    "nome": g['nome'], "ruolo": g['ruolo'], "anni": anni_res,
-                    "acquisto": g['costo_acquisto'], "amm": amm, "stip": stip, 
-                    "val_res": g['valore_residuo'], "costo_totale": costo_reale_anno
-                })
+            # -----------------------------------------------
+            # FINE BLOCCO
+            # -----------------------------------------------
 
         b['costi']['ammortamenti'] = tot_ammortamenti
         b['costi']['monte_ingaggi'] = tot_ingaggi
@@ -440,6 +501,9 @@ elif menu == "2. Dashboard & Rosa":
             st.markdown(f"##### 📝 Rosa Attiva <span style='font-size: 13px; font-weight: 500; color: #64748B; float: right; margin-top: 5px;'>{ruoli_str}</span>", unsafe_allow_html=True)
             
             if giocatori_con_costo:
+                # --- ORDINAMENTO PER RUOLO PRIMA DELLA STAMPA ---
+                ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
+                giocatori_con_costo = sorted(giocatori_con_costo, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
                 html_table = "<table class='roster-table'>"
                 html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Residui</th><th>Costo Acquisto</th><th>Ammortamento</th><th>Stipendio</th><th>Costo Bilancio</th><th>Valore Residuo</th></tr>"
                 
@@ -456,14 +520,14 @@ elif menu == "2. Dashboard & Rosa":
                     stile_ruolo = badge_color.get(g['ruolo'], "background-color: #64748B; color: white;")
                     badge_html = f"<span style='{stile_ruolo} padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;'>{g['ruolo'][:3].upper()}</span>"
                     
-                    # (Tieni la tua logica dell'alert ⚠️ per l'anno di contratto)
-                    if g['anni'] == 1:
-                        anni_format = f"<span style='color: #EF4444; font-weight: bold;'>{g['anni']} ⚠️</span>"
+                    # Alert 1 anno (ora usa anni_raw per calcolare, ma stampa anni_str)
+                    if g['anni_raw'] == 1:
+                        anni_format = f"<span style='color: #EF4444; font-weight: bold;'>{g['anni_str']} ⚠️</span>"
                     else:
-                        anni_format = f"{g['anni']}"
+                        anni_format = f"{g['anni_str']}"
 
-                    # Inseriamo badge_html nella colonna del ruolo
-                    html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{badge_html}</td><td>{anni_format}</td><td>{g['acquisto']:.2f} M</td><td>{g['amm']:.2f} M</td><td>{g['stip']:.2f} M</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']:.2f} M</td><td><strong>{g['val_res']:.2f} M</strong></td></tr>"
+                    # QUI LA MAGIA: Togliamo tutti i :.2f perché i numeri sono già stati formattati nel blocco sopra
+                    html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{badge_html}</td><td>{anni_format}</td><td>{g['acquisto']}</td><td>{g['amm']}</td><td>{g['stip']}</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']}</td><td><strong>{g['val_res']}</strong></td></tr>"
 
                 html_table += "</table>"
                 st.markdown(html_table, unsafe_allow_html=True)
@@ -517,11 +581,11 @@ elif menu == "2. Dashboard & Rosa":
                 <strong style='color: #10B981;'>🟢 Valore Produzione</strong><br>
             """
             for k, v in b['ricavi'].items():
-                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.1f} M</span><br>"
+                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.2f} M</span><br>"
             
             html_voci += "<br><strong style='color: #EF4444;'>🔴 Costi Produzione</strong><br>"
             for k, v in b['costi'].items():
-                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.1f} M</span><br>"
+                html_voci += f"<span style='color: #64748B;'>{k.replace('_', ' ').title()}:</span> <span style='float: right; font-weight: bold;'>{v:.2f} M</span><br>"
             
             # --- LA NUOVA SEZIONE ZAVORRA CON GLI STIPENDI ---
             html_voci += "<br><strong style='color: #F59E0B;'>⚓ Proiezione Prossima Stagione</strong><br>"
@@ -625,12 +689,14 @@ elif menu == "3. Mercato (Definitivi)":
                         sessione_ven = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_ven")
                         st.divider()
                         
-                        g_obj = st.selectbox(
+                        indice_a = st.selectbox(
                             "Seleziona da Vendere", 
-                            options=rosa_ordinata, 
-                            format_func=lambda g: f"{g['nome']} ({g['ruolo'][:3].upper()})", 
-                            key="vendita"
+                            options=range(len(rosa_ordinata)), 
+                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                            key="vendita_idx"
                         )
+
+                        g_obj = rosa_ordinata[indice_a]
                         
                         # CONTROLLO DI SICUREZZA: Esegue solo se g_obj non è vuoto
                         if g_obj:
@@ -639,13 +705,20 @@ elif menu == "3. Mercato (Definitivi)":
                             elif g_obj.get("in_prestito_da"):
                                 st.error(f"❌ Operazione Illegale. Non puoi vendere {g_obj['nome']} perché è di proprietà di: {g_obj['in_prestito_da']}.")
                             else:
-                                val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2) if "Invernale" in sessione_ven else g_obj['valore_residuo']
+                                if "Invernale" in sessione_ven:
+                                    # Evita la doppia svalutazione se il giocatore è stato comprato o rinnovato IN QUESTA STESSA SESSIONE di Gennaio
+                                    if (g_obj.get('rinnovato_a_gennaio') or g_obj.get('acquistato_a_gennaio')) and g_obj.get('anni_trascorsi', 0) == 0:
+                                        val_res_effettivo = g_obj['valore_residuo']
+                                    else:
+                                        val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2)
+                                else:
+                                    val_res_effettivo = g_obj['valore_residuo']
                                 st.write(f"📊 Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
                                 
                                 prezzo_v = st.number_input("Prezzo di Vendita (MLN)", min_value=0.0, step=1.0)
                                 
                                 # Bottone largo!
-                                if st.button("Conferma Cessione", type="primary"):
+                                if st.button("Conferma Cessione", type="primary", key="btn_conferma_cessione"):
                                     if "Invernale" in sessione_ven:
                                         squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
                                     
@@ -665,15 +738,17 @@ elif menu == "3. Mercato (Definitivi)":
             with t3:
                 if rosa_ordinata:
                     with st.container(border=True):
-                        sessione_svin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_svin")
+                        sessione_svin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_svin")
                         st.divider()
                         
-                        g_obj_s = st.selectbox(
+                        indice_s = st.selectbox(
                             "Seleziona da Svincolare", 
-                            options=rosa_ordinata, 
-                            format_func=lambda g: f"{g['nome']} ({g['ruolo'][:3].upper()})", 
-                            key="svincolo"
+                            options=range(len(rosa_ordinata)), 
+                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                            key="svincolo_idx"
                         )
+
+                        g_obj_s = rosa_ordinata[indice_s]
                         
                         # CONTROLLO DI SICUREZZA
                         if g_obj_s:
@@ -682,11 +757,18 @@ elif menu == "3. Mercato (Definitivi)":
                             elif g_obj_s.get("in_prestito_da"):
                                 st.error(f"❌ Non puoi svincolare un giocatore in prestito. Proprietà: {g_obj_s['in_prestito_da']}.")
                             else:
-                                val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2) if "Invernale" in sessione_svin else g_obj_s['valore_residuo']
+                                if "Invernale" in sessione_svin:
+                                    # Evita la doppia svalutazione se il giocatore è stato comprato o rinnovato IN QUESTA STESSA SESSIONE di Gennaio
+                                    if (g_obj_s.get('rinnovato_a_gennaio') or g_obj_s.get('acquistato_a_gennaio')) and g_obj_s.get('anni_trascorsi', 0) == 0:
+                                        val_res_effettivo_s = g_obj_s['valore_residuo']
+                                    else:
+                                        val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2)
+                                else:
+                                    val_res_effettivo_s = g_obj_s['valore_residuo']
                                 st.error(f"⚠️ Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
                                 
                                 # Bottone largo!
-                                if st.button("Conferma Svincolo", type="primary"):
+                                if st.button("Conferma Svincolo", type="primary", key="btn_conferma_svincolo"):
                                     if "Invernale" in sessione_svin:
                                         squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
                                     
@@ -702,16 +784,21 @@ elif menu == "3. Mercato (Definitivi)":
             with t4:
                 if rosa_ordinata:
                     with st.container(border=True):
-                        sessione_rin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale / Gennaio"], horizontal=True, key="sess_rin")
+                        sessione_rin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_rin")
                         is_gen_rin = "Invernale" in sessione_rin
                         st.divider()
                         
-                        g_obj_r = st.selectbox(
+                        # MODIFICA CHIAVE: Usiamo gli indici (numeri interi) invece dei dizionari 
+                        # per evitare che Streamlit perda la memoria al click del bottone!
+                        indice_r = st.selectbox(
                             "Seleziona da Rinnovare", 
-                            options=rosa_ordinata, 
-                            format_func=lambda g: f"{g['nome']} ({g['ruolo'][:3].upper()})", 
-                            key="rinnovo"
+                            options=range(len(rosa_ordinata)), 
+                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                            key="rinnovo_idx"
                         )
+                        
+                        # Recuperiamo il dizionario del giocatore usando l'indice sicuro
+                        g_obj_r = rosa_ordinata[indice_r]
                         
                         # CONTROLLO DI SICUREZZA
                         if g_obj_r:
@@ -720,37 +807,51 @@ elif menu == "3. Mercato (Definitivi)":
                             elif g_obj_r.get("in_prestito_da"):
                                 st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} non è un tuo giocatore (Proprietà: {g_obj_r['in_prestito_da']}).")
                             else:
-                                blocco_recente = False
+                                # CONTROLLO DI SICUREZZA
+                                blocco_rinnovo = False
                                 msg_blocco = ""
                                 
+                                # 1. Controllo acquisto recente (Esistente)
                                 if g_obj_r.get('anni_trascorsi', 0) == 0:
                                     if not g_obj_r.get('acquistato_a_gennaio') and not is_gen_rin:
-                                        blocco_recente = True
-                                        msg_blocco = "Hai appena acquistato questo giocatore (Sessione Estiva). Non puoi rinnovarlo immediatamente."
+                                        blocco_rinnovo = True
+                                        msg_blocco = "Hai appena firmato questo giocatore in questa Sessione Estiva. Le regole non permettono un rinnovo istantaneo."
                                     elif g_obj_r.get('acquistato_a_gennaio') and is_gen_rin:
-                                        blocco_recente = True
-                                        msg_blocco = "Hai acquistato questo giocatore in questa sessione Invernale. Le regole non permettono un rinnovo istantaneo."
+                                        blocco_rinnovo = True
+                                        msg_blocco = "Hai appena firmato questo giocatore in questa Sessione Invernale. Le regole non permettono un rinnovo istantaneo."
                                 
-                                if blocco_recente:
+                                # 2. NUOVO CONTROLLO: Anni rimanenti (Max 1 o 2 per rinnovare)
+                                if not blocco_rinnovo: # Lo esegue solo se non è già bloccato dal controllo sopra
+                                    anni_rimanenti = g_obj_r.get('anni_contratto', 1) - g_obj_r.get('anni_trascorsi', 0)
+                                    if anni_rimanenti >= 3:
+                                        blocco_rinnovo = True
+                                        msg_blocco = f"Il giocatore ha ancora {anni_rimanenti} anni di contratto. Puoi rinnovarlo solo quando gli restano 1 o 2 anni."
+                                
+                                if blocco_rinnovo:
                                     st.warning(f"✋ **Operazione Bloccata.** {msg_blocco}")
                                 else:
                                     st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
                                     
-                                    nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 3)", 1, 3, 1, key="anni_rinnovo")
+                                    nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 5)", 1, 5, 1, key="anni_rinnovo")
+                                    
+                                    # LA RIGA MAGICA: Sottrae 0.5 se siamo a gennaio!
+                                    anni_effettivi = nuovi_anni - 0.5 if is_gen_rin else nuovi_anni
+                                    
                                     nuovo_stipendio = g_obj_r['stipendio'] * 1.15
                                     
                                     if is_gen_rin:
-                                        st.info("❄️ **Rinnovo Invernale:** Impatto calcolato pro-quota (50% vecchio, 50% nuovo contratto).")
+                                        st.info(f"❄️ **Rinnovo Invernale:** Impatto pro-quota. Durata effettiva {anni_effettivi} anni.")
                                         vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
-                                        nuovo_amm = vr_a_gennaio / nuovi_anni if nuovi_anni > 0 else 0
+                                        # Usiamo anni_effettivi per calcolare l'ammortamento corretto!
+                                        nuovo_amm = vr_a_gennaio / anni_effettivi if anni_effettivi > 0 else 0
                                     else:
                                         st.info("☀️ **Rinnovo Estivo:** Nuovo contratto applicato all'intera stagione.")
-                                        nuovo_amm = g_obj_r['valore_residuo'] / nuovi_anni if nuovi_anni > 0 else 0
+                                        nuovo_amm = g_obj_r['valore_residuo'] / anni_effettivi if anni_effettivi > 0 else 0
                                         
                                     st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
                                     
                                     # Bottone largo!
-                                    if st.button("Conferma Rinnovo", type="primary"):
+                                    if st.button("Conferma Rinnovo", type="primary", key="btn_conferma_rinnovo"):
                                         if is_gen_rin:
                                             g_obj_r['rinnovato_a_gennaio'] = True
                                             g_obj_r['vecchio_amm_gennaio'] = g_obj_r['ammortamento_annuo']
@@ -759,12 +860,13 @@ elif menu == "3. Mercato (Definitivi)":
                                             
                                         g_obj_r['stipendio'] = nuovo_stipendio
                                         g_obj_r['costo_acquisto'] = g_obj_r['valore_residuo']
-                                        g_obj_r['anni_contratto'] = nuovi_anni
+                                        # Salviamo gli anni_effettivi e NON quelli dello slider nudo e crudo!
+                                        g_obj_r['anni_contratto'] = anni_effettivi 
                                         g_obj_r['ammortamento_annuo'] = nuovo_amm
                                         g_obj_r['anni_trascorsi'] = 0
                                         
                                         save_data(db, DB_PATH)
-                                        log_evento(sq_sel, "🤝", f"ha prolungato il contratto di **{g_obj_r['nome']}** per altri {nuovi_anni} anno/i.")
+                                        log_evento(sq_sel, "🤝", f"ha prolungato il contratto di **{g_obj_r['nome']}** per altri {anni_effettivi} anno/i.")
                                         st.toast(f"Contratto di {g_obj_r['nome']} rinnovato!", icon="🤝")
                                         st.rerun()
                 else:
@@ -793,18 +895,38 @@ elif menu == "4. Mercato (Prestiti)":
             
             if not rosa_ordinata: st.info("Nessun giocatore disponibile.")
             else:
-                g_obj = st.selectbox(
+                # MODIFICA 1: Usiamo i numeri interi come opzioni per non perdere la memoria al click!
+                indice_p = st.selectbox(
                     "Seleziona Giocatore da Prestare", 
-                    options=rosa_ordinata, 
-                    format_func=lambda g: f"{g['nome']} ({g['ruolo'][:3].upper()})", 
-                    key="prestito_out"
+                    options=range(len(rosa_ordinata)), 
+                    format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                    key="prestito_out_idx"
                 )
                 
+                # Recuperiamo il giocatore dalla lista temporanea ordinata
+                g_selezionato = rosa_ordinata[indice_p]
+                
+                # MODIFICA 2: Troviamo il giocatore REALE dentro il database per modificarlo direttamente alla fonte
+                g_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_selezionato['nome'])
+                
                 st.markdown("### 📝 Dettagli Contratto di Prestito")
+                
+                # ---> AGGIUNTA SESSIONE
+                sessione_prestito = st.radio("Sessione di Mercato (Prestito)", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_prestito")
+                is_gen_prestito = "Invernale" in sessione_prestito
+                st.divider()
+                
                 col_dur, col_stip = st.columns(2)
                 durata_prestito = col_dur.slider("Durata Prestito (Anni)", 1, 2, 1)
                 perc_stipendio = col_stip.slider("% Stipendio a carico dell'Acquirente", 0, 100, 50, step=10)
-                st.info("💡 **Tip per i Prestiti Invernali (Gennaio):** Se prestate un giocatore a metà anno dividendo lo stipendio reale a metà (50/50) per i restanti 6 mesi, qui dovete impostare **25%** (perché inciderà per un quarto sul totale annuale di Bilancio).")
+                
+                # Calcolo durata effettiva (-0.5 a gennaio)
+                anni_effettivi_prestito = durata_prestito - 0.5 if is_gen_prestito else durata_prestito
+                
+                if is_gen_prestito:
+                    st.info(f"❄️ **Prestito Invernale:** Durata effettiva {anni_effettivi_prestito} anni. Il {perc_stipendio}% di stipendio a carico dell'acquirente verrà calcolato **solo sui 6 mesi correnti**, mentre i primi 6 mesi restano interamente a carico della società cedente")
+                else:
+                    st.info(f"☀️ **Prestito Estivo:** Durata {anni_effettivi_prestito} anni. La percentuale si applica all'intera stagione.")
                 
                 col_on, col_tipo, col_cifra = st.columns(3)
                 costo_prestito = col_on.number_input("Costo Prestito (Oneroso in MLN)", min_value=0.0, step=0.5, value=0.0)
@@ -815,22 +937,24 @@ elif menu == "4. Mercato (Prestiti)":
                     cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
                 
                 if st.button("Ufficializza Prestito"):
-                    anni_rimanenti = g_obj['anni_contratto'] - g_obj['anni_trascorsi']
+                    anni_rimanenti = g_obj['anni_contratto'] - g_obj.get('anni_trascorsi', 0)
                     
-                    if durata_prestito >= anni_rimanenti:
-                        st.error(f"⚠️ Impossibile prestare. Il giocatore ha solo {anni_rimanenti} anno/i di contratto residui. Per un prestito di {durata_prestito} anni, servono almeno {durata_prestito + 1} anni di contratto (rinnovalo prima di cederlo!).")
+                    if anni_effettivi_prestito >= anni_rimanenti:
+                        st.error(f"⚠️ Impossibile prestare. Il giocatore ha solo {anni_rimanenti} anno/i di contratto residui. Per questo prestito, servono almeno {anni_effettivi_prestito + 1} anni di contratto (rinnovalo prima di cederlo!).")
                     elif costo_prestito > db[sq_acquirente]['cassa']:
                         st.error("Cassa acquirente insufficiente per il prestito oneroso!")
                     else:
                         g_acq = g_obj.copy()
                         g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
                         g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_acq['anni_prestito_rimanenti'] = durata_prestito
+                        g_acq['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                        g_acq['prestato_a_gennaio'] = is_gen_prestito # <--- NUOVO FLAG
                         db[sq_acquirente]['rosa'].append(g_acq)
                         
                         g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
                         g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_obj['anni_prestito_rimanenti'] = durata_prestito
+                        g_obj['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                        g_obj['prestato_a_gennaio'] = is_gen_prestito # <--- NUOVO FLAG
                         
                         if costo_prestito > 0:
                             db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
@@ -840,7 +964,7 @@ elif menu == "4. Mercato (Prestiti)":
                             
                         save_data(db, DB_PATH)
                         log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
-                        st.toast(f"Prestito di {durata_prestito} anno/i registrato!", icon="🧳")
+                        st.toast(f"Prestito registrato!", icon="🧳")
                         st.rerun()
                         
             st.divider()
@@ -903,68 +1027,134 @@ elif menu == "4. Mercato (Prestiti)":
 elif menu == "5. Calendario & Partite":
     st.header("🗓️ Calendario")
     
-    if len(db) != 8:
-        st.error(f"Per generare il calendario servono 8 squadre. Attualmente ce ne sono {len(db)}.")
+    # --- CSS MAGICO PER GLI INPUT DEI GOL (V2.0) ---
+    st.markdown("""
+    <style>
+    /* Nasconde i bottoni +/- nativi del browser */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none; 
+        margin: 0; 
+    }
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
+    
+    /* ANNIHILAZIONE DEI BOTTONI +/- DI STREAMLIT */
+    [data-testid="stNumberInputStepDown"], 
+    [data-testid="stNumberInputStepUp"] {
+        display: none !important;
+    }
+    
+    /* Forza il testo al centro in tutti i box dei gol */
+    div[data-testid="stNumberInputContainer"] input {
+        text-align: center !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if not st.session_state.is_admin:
+        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può generare il calendario o inserire i risultati di una giornata.")
     else:
-        if not calendario:
-            c_giornate, c_btn = st.columns([1, 3])
-            num_g = c_giornate.number_input("Numero di Giornate", min_value=1, max_value=76, value=36)
+        if len(db) != 8:
+            st.error(f"Per generare il calendario servono 8 squadre. Attualmente ce ne sono {len(db)}.")
+        else:
+            if not calendario:
+                c_giornate, c_btn = st.columns([1, 3])
+                num_g = c_giornate.number_input("Numero di Giornate", min_value=1, max_value=76, value=36)
+                
+                c_btn.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                
+                if c_btn.button("🚀 Genera Calendario Ufficiale", type="primary"):
+                    calendario = genera_calendario_berger(list(db.keys()), num_g)
+                    save_data(calendario, CAL_PATH)
+                    st.success(f"Calendario di {num_g} giornate generato con successo!")
+                    st.rerun()
             
-            # Un po' di stile per allineare il bottone all'input
-            c_btn.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            
-            if c_btn.button("🚀 Genera Calendario Ufficiale", type="primary"):
-                calendario = genera_calendario_berger(list(db.keys()), num_g)
-                save_data(calendario, CAL_PATH)
-                st.success(f"Calendario di {num_g} giornate generato con successo!")
-                st.rerun()
-        
-        if calendario:
-            giornata_idx = st.selectbox("Seleziona Giornata", range(1, len(calendario) + 1)) - 1
-            giornata_dati = calendario[giornata_idx]
-            
-            st.subheader(f"Partite Giornata {giornata_idx + 1}")
-            
-            with st.form(f"giornata_{giornata_idx}"):
-                for idx, match in enumerate(giornata_dati):
-                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                    c1.markdown(f"<h5 style='text-align: right'>{match['home']}</h5>", unsafe_allow_html=True)
+            if calendario:
+                st.info("👇 Scorri per vedere tutte le giornate.")
+                
+                # ELIMINATO il menu a tendina! Ora facciamo un ciclo per mostrare TUTTE le giornate
+                for giornata_idx, giornata_dati in enumerate(calendario):
                     
-                    # CHICCA: Abbiamo aggiunto "g{giornata_idx}_" alla key per renderla unica!
-                    gol_h = c2.number_input("", min_value=0, value=match["gol_home"], key=f"g{giornata_idx}_h_{idx}", disabled=not st.session_state.is_admin)
+                    st.subheader(f"Partite Giornata {giornata_idx + 1}")
                     
-                    c3.markdown("<h4 style='text-align: center'>-</h4>", unsafe_allow_html=True)
+                    # Controlliamo se la giornata è già stata giocata e salvata
+                    # (Ci basta guardare la prima partita, perché le salviamo tutte insieme)
+                    giornata_chiusa = False
+                    if giornata_dati and giornata_dati[0].get("giocata", False):
+                        giornata_chiusa = True
                     
-                    # Anche qui per i gol in trasferta
-                    gol_a = c4.number_input("", min_value=0, value=match["gol_away"], key=f"g{giornata_idx}_a_{idx}", disabled=not st.session_state.is_admin)
+                    if giornata_chiusa:
+                        # ==========================================
+                        # VISTA "LOCKED" (GIORNATA GIÀ GIOCATA E SALVATA)
+                        # ==========================================
+                        with st.container(border=True): # Mettiamo tutto in un bel box
+                            for idx, match in enumerate(giornata_dati):
+                                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                                
+                                c1.markdown(f"<div style='text-align: right; margin-top: 6px; font-weight: bold; font-size: 16px;'>{match['home']}</div>", unsafe_allow_html=True)
+                                
+                                # STILE CUSTOM PER I GOL SALVATI (Badge Verde brillante)
+                                stile_badge = "background-color: #10B981; color: white; border-radius: 6px; padding: 6px 0; text-align: center; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                                c2.markdown(f"<div style='{stile_badge}'>{match['gol_home']}</div>", unsafe_allow_html=True)
+                                
+                                c3.markdown("<div style='text-align: center; margin-top: 6px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                
+                                c4.markdown(f"<div style='{stile_badge}'>{match['gol_away']}</div>", unsafe_allow_html=True)
+                                
+                                c5.markdown(f"<div style='text-align: left; margin-top: 6px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
+                                
+                                st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) # spaziatura tra le partite
+                                
+                            # IL MESSAGGIO CHE SOSTITUISCE IL BOTTONE
+                            st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali e gli incassi stadio sono stati registrati a bilancio.")
                     
-                    c5.markdown(f"<h5>{match['away']}</h5>", unsafe_allow_html=True)
+                    else:
+                        # ==========================================
+                        # VISTA "EDIT" (GIORNATA DA GIOCARE)
+                        # ==========================================
+                        with st.form(f"giornata_{giornata_idx}"):
+                            for idx, match in enumerate(giornata_dati):
+                                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                                
+                                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['home']}</div>", unsafe_allow_html=True)
+                                gol_h = c2.number_input("H", min_value=0, value=match["gol_home"], key=f"g{giornata_idx}_h_{idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                gol_a = c4.number_input("A", min_value=0, value=match["gol_away"], key=f"g{giornata_idx}_a_{idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
 
-                if st.session_state.is_admin:
-                    if st.form_submit_button("Salva Risultati & Assegna Incassi"):
-                        gol_map = {}
-                        for idx, match in enumerate(giornata_dati):
-                            # Andiamo a pescare i gol usando la nuova chiave unica
-                            gh = st.session_state[f"g{giornata_idx}_h_{idx}"]
-                            ga = st.session_state[f"g{giornata_idx}_a_{idx}"]
-                            
-                            match["gol_home"], match["gol_away"], match["giocata"] = gh, ga, True
-                            gol_map[match["home"]] = gh
-                            gol_map[match["away"]] = ga
-                            
-                            if not match["incassi_assegnati"]:
-                                h_team = db[match["home"]]
-                                if h_team['stadio']['livello']:
-                                    incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
-                                    h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
-                                    h_team['cassa'] += incasso 
-                                    h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
-                                match["incassi_assegnati"] = True
-                        
-                        save_data(db, DB_PATH)
-                        save_data(calendario, CAL_PATH)
-                        log_evento(match["home"], "🎟️", f"ha registrato un incasso stadio di **{incasso:.2f} M**.")
-                        st.success("✅ Risultati e incassi stadio salvati con successo!")
+                            if st.session_state.is_admin:
+                                if st.form_submit_button(f"Salva Risultati & Assegna Incassi (G. {giornata_idx + 1})", type="primary"):
+                                    gol_map = {}
+                                    for idx, match in enumerate(giornata_dati):
+                                        gh = st.session_state[f"g{giornata_idx}_h_{idx}"]
+                                        ga = st.session_state[f"g{giornata_idx}_a_{idx}"]
+                                        
+                                        match["gol_home"] = gh
+                                        match["gol_away"] = ga
+                                        match["giocata"] = True
+
+                                        gol_map[match["home"]] = gh
+                                        gol_map[match["away"]] = ga
+                                        
+                                        if not match["incassi_assegnati"]:
+                                            h_team = db[match["home"]]
+                                            if h_team['stadio']['livello']:
+                                                incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
+                                                h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
+                                                h_team['cassa'] += incasso 
+                                                h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
+                                            match["incassi_assegnati"] = True
+                                    
+                                    save_data(db, DB_PATH)
+                                    save_data(calendario, CAL_PATH)
+                                    
+                                    log_evento("Lega", "📅", f"Risultati e incassi della **Giornata {giornata_idx + 1}** ufficializzati.")
+                                    st.rerun() 
+                    
+                    # Divisore tra le giornate
+                    st.divider()
 
 # ==========================================
 # 6. CLASSIFICA E PREMI CAMPIONATO
@@ -987,44 +1177,119 @@ elif menu == "6. Classifica Campionato":
                     else: standings[a]["Punti"] += 3; standings[a]["V"] += 1; standings[h]["P"] += 1
                         
         df_c = pd.DataFrame.from_dict(standings, orient='index').sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
-        st.dataframe(df_c.style.highlight_max(subset=['Punti'], color='lightgreen'), use_container_width=True)
         
+        # --- TABELLA CLASSIFICA CUSTOM ---
+        html_classifica = """
+        <style>
+        .tabella-classifica {
+            border-collapse: collapse;
+            background-color: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            font-family: sans-serif;
+            margin-bottom: 20px;
+            border: 1px solid #E2E8F0;
+        }
+        .tabella-classifica th {
+            background-color: #F8FAFC;
+            color: #64748B;
+            padding: 12px 15px;
+            font-size: 13px;
+            text-align: center; /* Centriamo le colonne statistiche */
+            border-bottom: 2px solid #E2E8F0;
+        }
+        .tabella-classifica td {
+            padding: 12px 15px;
+            font-size: 14px;
+            color: #334155;
+            text-align: center; /* Centriamo i valori */
+            border-bottom: 1px solid #F1F5F9;
+        }
+        /* La prima colonna (Squadra) allineata a sinistra e più larga */
+        .tabella-classifica th:first-child, .tabella-classifica td:first-child {
+            text-align: left;
+            width: 250px;
+        }
+        /* Colonne statistiche strette */
+        .tabella-classifica th:not(:first-child), .tabella-classifica td:not(:first-child) {
+            width: 70px;
+        }
+        .tabella-classifica tr:last-child td {
+            border-bottom: none;
+        }
+        .tabella-classifica tr:hover {
+            background-color: #F1F5F9;
+        }
+        </style>
+
+        <table class="tabella-classifica">
+            <tr>
+                <th>Squadra</th><th>Punti</th><th>G</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th>
+            </tr>
+        """
+
+        # Genera le righe della tabella pescando dal DataFrame ordinato
+        for team, row in df_c.iterrows():
+            # Niente spazi segreti usando le parentesi e le singole virgolette!
+            html_classifica += (
+                "<tr>"
+                f"<td><strong>{team}</strong></td>"
+                f"<td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td>"
+                f"<td>{row['G']}</td>"
+                f"<td>{row['V']}</td>"
+                f"<td>{row['N']}</td>"
+                f"<td>{row['P']}</td>"
+                f"<td>{row['GF']}</td>"
+                f"<td>{row['GS']}</td>"
+                f"<td>{row['DR']}</td>"
+                "</tr>"
+            )
+
+        html_classifica += "</table>"
+
+        # Stampa la tabella a schermo
+        st.markdown(html_classifica, unsafe_allow_html=True)
+
         st.divider()
-        if st.button("🏆 Distribuisci Premi Campionato e Sponsor", type="primary"):
-            squadre_ordinate = df_c.index.tolist()
-            premi_sponsor = [70.0, 65.0, 60.0, 55.0, 50.0, 45.0, 42.0, 40.0]
-            premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
-            
-            # --- CONTEGGIO PARTITE IN CASA ---
-            partite_in_casa = {s: 0 for s in db.keys()}
-            for md in calendario:
-                for m in md:
-                    partite_in_casa[m["home"]] += 1
-            max_casa = max(partite_in_casa.values())
-            
-            for pos, nome_sq in enumerate(squadre_ordinate):
-                team = db[nome_sq]
-                p_spons = premi_sponsor[pos]
-                p_camp = premi_campionato[pos]
+        if not st.session_state.is_admin:
+            st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può distribuire i premi e i ricavi da sponsor.")
+        else:
+            if st.button("🏆 Distribuisci Premi Campionato e Sponsor", type="primary"):
+                squadre_ordinate = df_c.index.tolist()
+                premi_sponsor = [70.0, 65.0, 60.0, 55.0, 50.0, 45.0, 42.0, 40.0]
+                premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
                 
-                # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
-                team['cassa'] = round(team['cassa'] + p_camp, 2)
-                team['bilancio']['ricavi']['premi_sportivi'] += p_camp
-                team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                # --- CONTEGGIO PARTITE IN CASA ---
+                partite_in_casa = {s: 0 for s in db.keys()}
+                for md in calendario:
+                    for m in md:
+                        partite_in_casa[m["home"]] += 1
+                max_casa = max(partite_in_casa.values())
                 
-                # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
-                diff_casa = max_casa - partite_in_casa[nome_sq]
-                if diff_casa > 0 and team['stadio']['livello']:
-                    conguaglio = diff_casa * team['stadio']['base']
-                    team['cassa'] = round(team['cassa'] + conguaglio, 2)
-                    team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
-                    team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
-                
-                # 3. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
-                team['sponsor_prenotato'] = p_spons
-                
-            save_data(db, DB_PATH)
-            st.success("Premi Campionato erogati! Calcolati i conguagli per gli Stadi e prenotati gli Sponsor per il prossimo anno.")
+                for pos, nome_sq in enumerate(squadre_ordinate):
+                    team = db[nome_sq]
+                    p_spons = premi_sponsor[pos]
+                    p_camp = premi_campionato[pos]
+                    
+                    # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
+                    team['cassa'] = round(team['cassa'] + p_camp, 2)
+                    team['bilancio']['ricavi']['premi_sportivi'] += p_camp
+                    team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                    
+                    # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
+                    diff_casa = max_casa - partite_in_casa[nome_sq]
+                    if diff_casa > 0 and team['stadio']['livello']:
+                        conguaglio = diff_casa * team['stadio']['base']
+                        team['cassa'] = round(team['cassa'] + conguaglio, 2)
+                        team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
+                        team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
+                    
+                    # 3. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
+                    team['sponsor_prenotato'] = p_spons
+                    
+                save_data(db, DB_PATH)
+                st.success("Premi Campionato erogati! Calcolati i conguagli per gli Stadi e prenotati gli Sponsor per il prossimo anno.")
 
 # ==========================================
 # 7. COPPE UFFICIALI
@@ -1036,190 +1301,488 @@ elif menu == "7. Coppe (Italia & CL)":
     
     # ---------------- COPPA ITALIA ----------------
     with t_ci:
-        st.subheader("Coppa Italia")
+        st.subheader("🏆 Coppa Italia")
+        
+        # --- CSS MAGICO PER GLI INPUT DEI GOL (Applicato anche alle Coppe) ---
+        st.markdown("""
+        <style>
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        [data-testid="stNumberInputStepDown"], [data-testid="stNumberInputStepUp"] { display: none !important; }
+        div[data-testid="stNumberInputContainer"] input { text-align: center !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
         if not coppe["ci"]["quarti"]:
-            if st.session_state.is_admin and st.button("Sorteggia Tabellone Quarti"):
+            if st.session_state.is_admin and st.button("Sorteggia Tabellone Quarti Coppa Italia", type="primary"):
                 teams = list(db.keys())
                 random.shuffle(teams)
-                coppe["ci"]["quarti"] = [{"home": teams[i], "away": teams[i+1], "gol_home": 0, "gol_away": 0, "vincente": teams[i]} for i in range(0, 8, 2)]
+                coppe["ci"]["quarti"] = [{"home": teams[i], "away": teams[i+1], "gol_home": 0, "gol_away": 0} for i in range(0, 8, 2)]
                 save_data(coppe, COPPE_PATH)
                 st.rerun()
         
         if coppe["ci"]["quarti"]:
             st.write("🔴 **Quarti di Finale**")
-            for i, m in enumerate(coppe["ci"]["quarti"]):
-                c1, c2, c3, c4 = st.columns([2.5, 1, 1, 2])
-                c1.markdown(f"<div style='margin-top: 32px;'><b>{m['home']}</b> vs <b>{m['away']}</b></div>", unsafe_allow_html=True)
-                m['gol_home'] = c2.number_input(m['home'], value=m.get('gol_home',0), key=f"ci_q_h_{i}", disabled=not st.session_state.is_admin)
-                m['gol_away'] = c3.number_input(m['away'], value=m.get('gol_away',0), key=f"ci_q_a_{i}", disabled=not st.session_state.is_admin)
-                m['vincente'] = c4.selectbox("Passa il turno:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
+            
+            # Leggiamo dal database se questa fase è già stata chiusa
+            quarti_salvati = coppe["ci"].get("quarti_salvati", False)
+            
+            with st.container(border=True):
+                for i, m in enumerate(coppe["ci"]["quarti"]):
+                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                    c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
+                    
+                    if quarti_salvati:
+                        # STILE BOX BLOCCATO NEUTRO (Grigio chiaro, non verde)
+                        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
+                        c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        # Menu a tendina sparito, sostituito da testo semplice
+                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa il turno: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                    else:
+                        m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key=f"ci_q_h_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key=f"ci_q_a_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        opzioni = ["-", m['home'], m['away']]
+                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                        scelta = c_passa.selectbox("Passa il turno:", opzioni, index=default_idx, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
+                        m['vincente'] = scelta if scelta != "-" else None
+                    
+                    # Se NON è l'ultima partita, metti la riga
+                    if i < len(coppe["ci"]["quarti"]) - 1:
+                        st.divider()
+                    # Se è l'ultima partita, metti solo uno spazio invisibile
+                    else:
+                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
             
             if st.session_state.is_admin:
-                if st.button("Salva Risultati Quarti Coppa Italia"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
-                if not coppe["ci"]["semis"] and st.button("Genera Semifinali Coppa Italia"):
-                    vincitori = [m['vincente'] for m in coppe["ci"]["quarti"]]
-                    coppe["ci"]["semis"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0, "vincente": vincitori[0]}, {"home": vincitori[2], "away": vincitori[3], "gol_home": 0, "gol_away": 0, "vincente": vincitori[2]}]
-                    save_data(coppe, COPPE_PATH)
-                    st.rerun()
+                if not quarti_salvati:
+                    # Rinominato il bottone in "Archivia"
+                    if st.button("Salva e Archivia Quarti Coppa Italia", type="primary"): 
+                        vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
+                        # Controllo di sicurezza: non ti fa archiviare se hai lasciato il trattino "-"
+                        if None in vincitori:
+                            st.error("⚠️ Seleziona chi passa il turno in tutte le partite prima di archiviare!")
+                        else:
+                            coppe["ci"]["quarti_salvati"] = True
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                else:
+                    st.info("🔒 **Quarti di Finale archiviati.**")
+                    if not coppe["ci"]["semis"] and st.button("Genera Semifinali Coppa Italia", type="primary"):
+                        vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
+                        coppe["ci"]["semis"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}, {"home": vincitori[2], "away": vincitori[3], "gol_home": 0, "gol_away": 0}]
+                        save_data(coppe, COPPE_PATH)
+                        st.rerun()
 
         if coppe["ci"]["semis"]:
-            st.divider()
             st.write("🟡 **Semifinali**")
-            for i, m in enumerate(coppe["ci"]["semis"]):
-                c1, c2, c3, c4 = st.columns([2.5, 1, 1, 2])
-                c1.markdown(f"<div style='margin-top: 32px;'><b>{m['home']}</b> vs <b>{m['away']}</b></div>", unsafe_allow_html=True)
-                m['gol_home'] = c2.number_input(m['home'], value=m.get('gol_home',0), key=f"ci_s_h_{i}", disabled=not st.session_state.is_admin)
-                m['gol_away'] = c3.number_input(m['away'], value=m.get('gol_away',0), key=f"ci_s_a_{i}", disabled=not st.session_state.is_admin)
-                m['vincente'] = c4.selectbox("Passa in Finale:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
+            semis_salvate = coppe["ci"].get("semis_salvate", False)
+            
+            with st.container(border=True):
+                for i, m in enumerate(coppe["ci"]["semis"]):
+                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                    c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
+                    
+                    if semis_salvate:
+                        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
+                        c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                    else:
+                        m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key=f"ci_s_h_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key=f"ci_s_a_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        opzioni = ["-", m['home'], m['away']]
+                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                        scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
+                        m['vincente'] = scelta if scelta != "-" else None
+                    
+                    if i < len(coppe["ci"]["semis"]) - 1:
+                        st.divider()
+                    else:
+                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
             
             if st.session_state.is_admin:
-                if st.button("Salva Risultati Semifinali Coppa Italia"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
-                if not coppe["ci"]["finale"] and st.button("Genera Finale Coppa Italia"):
-                    vincitori = [m['vincente'] for m in coppe["ci"]["semis"]]
-                    perdenti = [m['home'] if m['vincente']==m['away'] else m['away'] for m in coppe["ci"]["semis"]]
-                    coppe["ci"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0, "vincente": vincitori[0]}]
-                    coppe["ci"]["perse_semis"] = perdenti
-                    save_data(coppe, COPPE_PATH)
-                    st.rerun()
+                if not semis_salvate:
+                    if st.button("Salva e Archivia Semifinali Coppa Italia", type="primary"): 
+                        vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
+                        if None in vincitori:
+                            st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
+                        else:
+                            coppe["ci"]["semis_salvate"] = True
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                else:
+                    st.info("🔒 **Semifinali archiviate.**")
+                    if not coppe["ci"]["finale"] and st.button("Genera Finale Coppa Italia", type="primary"):
+                        vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
+                        perdenti = [m['home'] if m.get('vincente') == m['away'] else m['away'] for m in coppe["ci"]["semis"]]
+                        coppe["ci"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
+                        coppe["ci"]["perse_semis"] = perdenti
+                        save_data(coppe, COPPE_PATH)
+                        st.rerun()
                 
         if coppe["ci"]["finale"]:
-            st.divider()
             st.write("🟢 **Finale**")
-            m = coppe["ci"]["finale"][0]
-            c1, c2, c3, c4 = st.columns([2.5, 1, 1, 2])
-            c1.markdown(f"<div style='margin-top: 32px;'><b>{m['home']}</b> vs <b>{m['away']}</b></div>", unsafe_allow_html=True)
-            m['gol_home'] = c2.number_input(m['home'], value=m.get('gol_home',0), key="ci_f_h", disabled=not st.session_state.is_admin)
-            m['gol_away'] = c3.number_input(m['away'], value=m.get('gol_away',0), key="ci_f_a", disabled=not st.session_state.is_admin)
-            m['vincente'] = c4.selectbox("VINCITORE:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key="ci_f_v", disabled=not st.session_state.is_admin)
+            finale_salvata = coppe["ci"].get("finale_salvata", False)
+            
+            with st.container(border=True):
+                m = coppe["ci"]["finale"][0]
+                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
+                
+                if finale_salvata:
+                    stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
+                    c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                    
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                    c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                else:
+                    m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key="ci_f_h", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                    m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key="ci_f_a", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                    
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                    opzioni = ["-", m['home'], m['away']]
+                    default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                    scelta = c_passa.selectbox("VINCITORE Coppa Italia:", opzioni, index=default_idx, key="ci_f_v", disabled=not st.session_state.is_admin)
+                    m['vincente'] = scelta if scelta != "-" else None
+
+                st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
             
             if st.session_state.is_admin:
-                if st.button("Salva Risultato Finale Coppa Italia"): save_data(coppe, COPPE_PATH); st.success("Salvato!")
-                st.divider()
-                if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia (Bilancio e Cassa)", type="primary"):
-                    vincente = m['vincente']
-                    perdente = m['home'] if vincente == m['away'] else m['away']
-                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
-                    db[vincente]['cassa'] += 25.0
-                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 20.0
-                    db[perdente]['cassa'] += 15.0
-                    for sq in coppe["ci"]["perse_semis"]: 
-                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 10.0
-                        db[sq]['cassa'] += 5.0
-                    coppe["ci"]["premi_dati"] = True
-                    save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                    st.success("Premi Coppa Italia distribuiti!")
-
+                if not finale_salvata:
+                    if st.button("Salva e Archivia Finale Coppa Italia", type="primary"): 
+                        vincente = m.get('vincente')
+                        if not vincente:
+                            st.error("⚠️ Seleziona il vincitore prima di archiviare!")
+                        else:
+                            coppe["ci"]["finale_salvata"] = True
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                else:
+                    st.info("🔒 **Finale archiviata.**")
+                    if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
+                        vincente = m.get('vincente')
+                        perdente = m['home'] if vincente == m['away'] else m['away']
+                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
+                        db[vincente]['cassa'] += 35.0
+                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 20.0
+                        db[perdente]['cassa'] += 20.0
+                        for sq in coppe["ci"]["perse_semis"]: 
+                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += 10.0
+                            db[sq]['cassa'] += 10.0
+                        coppe["ci"]["premi_dati"] = True
+                        save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
+                        st.success("Premi Coppa Italia distribuiti!")
+    
     # ---------------- CHAMPIONS LEAGUE ----------------
     with t_cl:
-        st.subheader("Champions League")
+        st.subheader("🏆 Champions League")
+        
+        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
+
         if not coppe["cl"]["gir_A"]:
-            if st.session_state.is_admin and st.button("Sorteggia Gironi Champions League"):
+            if st.session_state.is_admin and st.button("Sorteggia Gironi e Calendari Champions League", type="primary"):
                 teams = list(db.keys())
                 random.shuffle(teams)
                 coppe["cl"]["gir_A"] = teams[:4]
                 coppe["cl"]["gir_B"] = teams[4:]
-                coppe["cl"]["punti_A"] = {t: 0 for t in teams[:4]}
-                coppe["cl"]["punti_B"] = {t: 0 for t in teams[4:]}
+                
+                coppe["cl"]["cal_A"] = genera_calendario_berger(teams[:4], 6)
+                coppe["cl"]["cal_B"] = genera_calendario_berger(teams[4:], 6)
+                
                 save_data(coppe, COPPE_PATH)
                 st.rerun()
                 
         if coppe["cl"]["gir_A"]:
-            st.write("🔴 **Fase a Gironi**")
-            if "punti_A" not in coppe["cl"]: coppe["cl"]["punti_A"] = {t: 0 for t in coppe["cl"]["gir_A"]}
-            if "punti_B" not in coppe["cl"]: coppe["cl"]["punti_B"] = {t: 0 for t in coppe["cl"]["gir_B"]}
+            st.write("### Fase a Gironi")
+            
+            gironi_salvati = coppe["cl"].get("gironi_salvati", False)
+            
+            # --- CALCOLO DINAMICO PUNTI E STATISTICHE (DR, GF) ---
+            stats_A = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_A"]}
+            stats_B = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_B"]}
+            
+            def calcola_stats(calendario, dict_stats):
+                for md in calendario:
+                    for m in md:
+                        if m.get("giocata", False):
+                            gh = m["gol_home"]
+                            ga = m["gol_away"]
+                            
+                            # Aggiunge Gol Fatti e Subiti
+                            dict_stats[m["home"]]["GF"] += gh
+                            dict_stats[m["home"]]["GS"] += ga
+                            dict_stats[m["away"]]["GF"] += ga
+                            dict_stats[m["away"]]["GS"] += gh
+                            
+                            # Calcola i Punti
+                            if gh > ga: dict_stats[m["home"]]["Punti"] += 3
+                            elif gh == ga: 
+                                dict_stats[m["home"]]["Punti"] += 1
+                                dict_stats[m["away"]]["Punti"] += 1
+                            else: dict_stats[m["away"]]["Punti"] += 3
+                            
+                # Calcola Differenza Reti per ogni squadra
+                for t, stats in dict_stats.items():
+                    stats["DR"] = stats["GF"] - stats["GS"]
+                            
+            calcola_stats(coppe["cl"].get("cal_A", []), stats_A)
+            calcola_stats(coppe["cl"].get("cal_B", []), stats_B)
+            
+            # Creazione Dataframe e Ordinamento Regolamento: Punti -> Differenza Reti -> Gol Fatti
+            df_A = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_A.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+            df_B = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_B.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
 
             colA, colB = st.columns(2)
             
             with colA:
-                st.write("**Girone A**")
-                for t in coppe["cl"]["gir_A"]:
-                    coppe["cl"]["punti_A"][t] = st.number_input(f"Punti {t}", value=coppe["cl"]["punti_A"].get(t,0), key=f"pa_{t}", disabled=not st.session_state.is_admin)
-                df_A = pd.DataFrame(list(coppe["cl"]["punti_A"].items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
-                st.dataframe(df_A, hide_index=True)
+                st.markdown("#### 🔵 Girone A")
+                # Mostriamo in classifica solo Squadra, Punti e DR (GF rimane nascosto ma lavora sull'ordinamento)
+                st.dataframe(df_A[["Squadra", "Punti", "DR"]], hide_index=True, use_container_width=True)
+                
+                with st.expander("Calendario Girone A" if gironi_salvati else "Calendario Girone A"):
+                    for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
+                        st.markdown(f"**Giornata {g_idx + 1}**")
+                        for m_idx, m in enumerate(md):
+                            c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
+                            c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
+                            
+                            # LA MAGIA: Se i gironi sono archiviati, OPPURE se questa singola partita ha la spunta, la blocchiamo!
+                            partita_bloccata = gironi_salvati or m.get("giocata", False)
+                            
+                            if partita_bloccata:
+                                c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
+                                # Sostituiamo la checkbox interattiva con una semplice icona di conferma
+                                c6.markdown("<div style='margin-top: 8px;' title='Giocata e Archiviata'>✅</div>", unsafe_allow_html=True)
+                            else:
+                                m["gol_home"] = c2.number_input("H", value=m.get("gol_home", 0), key=f"cl_a_gh_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
+                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                m["gol_away"] = c4.number_input("A", value=m.get("gol_away", 0), key=f"cl_a_ga_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
+                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
+                                m["giocata"] = c6.checkbox("✅", value=m.get("giocata", False), key=f"cl_a_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin)
+                        st.divider()
             
             with colB:
-                st.write("**Girone B**")
-                for t in coppe["cl"]["gir_B"]:
-                    coppe["cl"]["punti_B"][t] = st.number_input(f"Punti {t}", value=coppe["cl"]["punti_B"].get(t,0), key=f"pb_{t}", disabled=not st.session_state.is_admin)
-                df_B = pd.DataFrame(list(coppe["cl"]["punti_B"].items()), columns=["Squadra", "Punti"]).sort_values(by="Punti", ascending=False)
-                st.dataframe(df_B, hide_index=True)
+                st.markdown("#### 🔴 Girone B")
+                # Il DataFrame df_B ora viene calcolato sopra insieme a df_A.
+                # Qui ci limitiamo a stamparlo mostrando solo Squadra, Punti e DR!
+                st.dataframe(df_B[["Squadra", "Punti", "DR"]], hide_index=True, use_container_width=True)
+                
+                with st.expander("Calendario Girone B" if gironi_salvati else "Calendario Girone B"):
+                    for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
+                        st.markdown(f"**Giornata {g_idx + 1}**")
+                        for m_idx, m in enumerate(md):
+                            c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
+                            c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
+                            
+                            partita_bloccata = gironi_salvati or m.get("giocata", False)
+                            
+                            if partita_bloccata:
+                                c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
+                                c6.markdown("<div style='margin-top: 8px;' title='Giocata e Archiviata'>✅</div>", unsafe_allow_html=True)
+                            else:
+                                m["gol_home"] = c2.number_input("H", value=m.get("gol_home", 0), key=f"cl_b_gh_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
+                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                                m["gol_away"] = c4.number_input("A", value=m.get("gol_away", 0), key=f"cl_b_ga_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
+                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
+                                m["giocata"] = c6.checkbox("✅", value=m.get("giocata", False), key=f"cl_b_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin)
+                        st.divider()
 
             if st.session_state.is_admin:
-                if st.button("Salva Punti Gironi Champions League"): save_data(coppe, COPPE_PATH); st.success("Punti Salvati!")
-                if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali Champions League"):
-                    a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
-                    b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
-                    coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
-                    coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0, "vincente": a1}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0, "vincente": b1}]
-                    save_data(coppe, COPPE_PATH)
-                    st.rerun()
+                if not gironi_salvati:
+                    # Dividiamo lo spazio in due bottoni
+                    btn_salva, btn_archivia = st.columns(2)
+                    
+                    # Bottone 1: Salva i progressi giornata per giornata
+                    if btn_salva.button("💾 Salva Risultati Parziali", type="secondary", use_container_width=True, key="btn_salva_cl"):
+                        save_data(coppe, COPPE_PATH)
+                        st.success("Risultati parziali salvati!.")
+                        st.rerun()
+                        
+                    # Bottone 2: Blocca tutto alla fine
+                    if btn_archivia.button("🔒 Archivia Gironi Champions League", type="primary", use_container_width=True, key="btn_archivia_cl"):
+                        coppe["cl"]["gironi_salvati"] = True
+                        save_data(coppe, COPPE_PATH)
+                        st.rerun()
+                else:
+                    st.info("🔒 **Gironi archiviati e classifiche definitive.**")
+                    if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali CL", type="primary", use_container_width=True, key="btn_genera_semis_cl"):
+                        a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
+                        b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
+                        coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
+                        coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0}]
+                        save_data(coppe, COPPE_PATH)
+                        st.rerun()
 
         if coppe["cl"]["semis_andata"]:
             st.divider()
             st.write("🟡 **Semifinali (Andata e Ritorno)**")
-            for i in range(2):
-                ma = coppe["cl"]["semis_andata"][i]
-                mr = coppe["cl"]["semis_ritorno"][i]
-                
-                st.markdown(f"##### {ma['home']} vs {ma['away']}")
-                
-                # RIGA 1: Partita di ANDATA
-                c1, c2, c3, _ = st.columns([2.5, 1, 1, 2])
-                c1.markdown(f"<div style='margin-top: 32px;'> <b>Andata:</b> {ma['home']} - {ma['away']}</div>", unsafe_allow_html=True)
-                ma['gol_home'] = c2.number_input(ma['home'], value=ma.get('gol_home',0), key=f"cl_s_ah_{i}", disabled=not st.session_state.is_admin)
-                ma['gol_away'] = c3.number_input(ma['away'], value=ma.get('gol_away',0), key=f"cl_s_aa_{i}", disabled=not st.session_state.is_admin)
-                
-                # RIGA 2: Partita di RITORNO + Selezione Vincente
-                c4, c5, c6, c7 = st.columns([2.5, 1, 1, 2])
-                c4.markdown(f"<div style='margin-top: 32px;'> <b>Ritorno:</b> {mr['home']} - {mr['away']}</div>", unsafe_allow_html=True)
-                mr['gol_home'] = c5.number_input(mr['home'], value=mr.get('gol_home',0), key=f"cl_s_rh_{i}", disabled=not st.session_state.is_admin)
-                mr['gol_away'] = c6.number_input(mr['away'], value=mr.get('gol_away',0), key=f"cl_s_ra_{i}", disabled=not st.session_state.is_admin)
-                mr['vincente'] = c7.selectbox("Passa in Finale:", [ma['home'], ma['away']], index=0 if mr.get('vincente')==ma['home'] else 1, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
-                
-                st.write("")
-                st.write("") # Doppio spazio per staccare bene dalla semifinale successiva
+            semis_salvate = coppe["cl"].get("semis_salvate", False)
             
-            if st.session_state.is_admin:
-                if st.button("Salva Risultati Semifinali Champions League"): save_data(coppe, COPPE_PATH); st.success("Salvati!")
-                if not coppe["cl"]["finale"] and st.button("Genera Finale Champions League"):
-                    vincitori = [m['vincente'] for m in coppe["cl"]["semis_ritorno"]]
-                    perdenti = [m['home'] if m['vincente']==m['away'] else m['away'] for m in coppe["cl"]["semis_ritorno"]]
-                    coppe["cl"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0, "vincente": vincitori[0]}]
-                    coppe["cl"]["perse_semis"] = perdenti
-                    save_data(coppe, COPPE_PATH)
-                    st.rerun()
-                
-        if coppe["cl"]["finale"]:
-            st.divider()
-            st.write("🟢 **Finale**")
-            m = coppe["cl"]["finale"][0]
-            
-            # Usiamo le stesse proporzioni della Coppa Italia
-            c1, c2, c3, c4 = st.columns([2.5, 1, 1, 2])
-            
-            # Inseriamo il trucchetto grafico con HTML
-            c1.markdown(f"<div style='margin-top: 32px;'><b>{m['home']}</b> vs <b>{m['away']}</b></div>", unsafe_allow_html=True)
-            
-            m['gol_home'] = c2.number_input(m['home'], value=m.get('gol_home',0), key="cl_f_h", disabled=not st.session_state.is_admin)
-            m['gol_away'] = c3.number_input(m['away'], value=m.get('gol_away',0), key="cl_f_a", disabled=not st.session_state.is_admin)
-            m['vincente'] = c4.selectbox("VINCITORE Champions League:", [m['home'], m['away']], index=0 if m.get('vincente')==m['home'] else 1, key="cl_f_v", disabled=not st.session_state.is_admin)
+            with st.container(border=True):
+                for i in range(2):
+                    ma = coppe["cl"]["semis_andata"][i]
+                    mr = coppe["cl"]["semis_ritorno"][i]
+                    
+                    st.markdown(f"<h5 style='text-align: center; color: #1E293B;'> {ma['home']} vs {ma['away']}</h5>", unsafe_allow_html=True)
+                    
+                    if semis_salvate:
+                        # ANDATA BLOCCATA
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata: <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
+                        c2.markdown(f"<div style='{stile_box}'>{ma['gol_home']}</div>", unsafe_allow_html=True)
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        c4.markdown(f"<div style='{stile_box}'>{ma['gol_away']}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{ma['away']}</b></div>", unsafe_allow_html=True)
+                        
+                        # RITORNO BLOCCATO
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno: <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
+                        c2.markdown(f"<div style='{stile_box}'>{mr['gol_home']}</div>", unsafe_allow_html=True)
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        c4.markdown(f"<div style='{stile_box}'>{mr['gol_away']}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{mr['away']}</b></div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{mr.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                    else:
+                        # ANDATA EDITABILE
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata: <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
+                        ma['gol_home'] = c2.number_input("H", value=ma.get('gol_home',0), key=f"cl_s_ah_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        ma['gol_away'] = c4.number_input("A", value=ma.get('gol_away',0), key=f"cl_s_aa_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{ma['away']}</b></div>", unsafe_allow_html=True)
+
+                        # RITORNO EDITABILE
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno: <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
+                        mr['gol_home'] = c2.number_input("H", value=mr.get('gol_home',0), key=f"cl_s_rh_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                        mr['gol_away'] = c4.number_input("A", value=mr.get('gol_away',0), key=f"cl_s_ra_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{mr['away']}</b></div>", unsafe_allow_html=True)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        opzioni = ["-", ma['home'], ma['away']]
+                        default_idx = opzioni.index(mr.get('vincente')) if mr.get('vincente') in opzioni else 0
+                        scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
+                        mr['vincente'] = scelta if scelta != "-" else None
+                        
+                    if i < 1:
+                        st.divider()
+                    else:
+                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
 
             if st.session_state.is_admin:
-                if st.button("Salva Risultato Finale Champions League"): save_data(coppe, COPPE_PATH); st.success("Salvato!")
-                st.divider()
-                if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions (Bilancio e Cassa)", type="primary"):
-                    vincente = m['vincente']
-                    perdente = m['home'] if vincente == m['away'] else m['away']
-                    db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 50.0
-                    db[vincente]['cassa'] += 35.0
-                    db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
-                    db[perdente]['cassa'] += 25.0
-                    for sq in coppe["cl"]["perse_semis"]: 
-                        db[sq]['bilancio']['ricavi']['premi_sportivi'] += 20.0
-                        db[sq]['cassa'] += 15.0
-                    coppe["cl"]["premi_dati"] = True
-                    save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                    st.success("Premi Champions League distribuiti!")
+                if not semis_salvate:
+                    if st.button("Salva e Archivia Semifinali Champions League", type="primary"):
+                        vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
+                        if None in vincitori:
+                            st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
+                        else:
+                            coppe["cl"]["semis_salvate"] = True
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                else:
+                    st.info("🔒 **Semifinali archiviate.**")
+                    if not coppe["cl"]["finale"] and st.button("Genera Finale Champions League", type="primary"):
+                        vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
+                        
+                        perdenti = []
+                        for i in range(2):
+                            ma = coppe["cl"]["semis_andata"][i]
+                            v = coppe["cl"]["semis_ritorno"][i].get('vincente')
+                            p = ma['home'] if v == ma['away'] else ma['away']
+                            perdenti.append(p)
+                            
+                        coppe["cl"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
+                        coppe["cl"]["perse_semis"] = perdenti
+                        save_data(coppe, COPPE_PATH)
+                        st.rerun()
+                
+        if coppe["cl"]["finale"]:
+            st.write("🟢 **Finale**")
+            finale_salvata = coppe["cl"].get("finale_salvata", False)
+            
+            with st.container(border=True):
+                m = coppe["cl"]["finale"][0]
+                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
+                
+                if finale_salvata:
+                    c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
+                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
+                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                    
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                    c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE CL: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                else:
+                    m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key="cl_f_h", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+                    m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key="cl_f_a", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
+                    
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                    opzioni = ["-", m['home'], m['away']]
+                    default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                    scelta = c_passa.selectbox("VINCITORE Champions League:", opzioni, index=default_idx, key="cl_f_v", disabled=not st.session_state.is_admin)
+                    m['vincente'] = scelta if scelta != "-" else None
+
+                st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
+                    
+            if st.session_state.is_admin:
+                if not finale_salvata:
+                    if st.button("Salva e Archivia Finale Champions League", type="primary"):
+                        if not m.get('vincente'):
+                            st.error("⚠️ Seleziona il vincitore prima di archiviare!")
+                        else:
+                            coppe["cl"]["finale_salvata"] = True
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                else:
+                    st.info("🔒 **Finale archiviata.**")
+                    if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions League", type="primary"):
+                        vincente = m.get('vincente')
+                        perdente = m['home'] if vincente == m['away'] else m['away']
+                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 50.0
+                        db[vincente]['cassa'] += 50.0
+                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
+                        db[perdente]['cassa'] += 35.0
+                        for sq in coppe["cl"]["perse_semis"]: 
+                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += 20.0
+                            db[sq]['cassa'] += 20.0
+                        coppe["cl"]["premi_dati"] = True
+                        save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
+                        st.success("Premi Champions League distribuiti!")
 
 # ==========================================
 # 8. CHIUSURA FISCALE
@@ -1279,7 +1842,7 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     dati['bilancio'] = init_bilancio()
                     dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
                     
-                    dati['cassa'] += 50.0
+                    dati['cassa'] += 70.0
                     dati['bilancio']['ricavi']['nuovo_capitale'] = 70.0
                     dati['bilancio']['storico_movimenti'].append("Iniezione Nuovo Capitale: +70.0M (Cassa e Ricavi)")
                     
@@ -1311,7 +1874,11 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                                 g['anni_trascorsi'] = 0
                                 nuova_rosa.append(g)
                             else:
-                                g['anni_prestito_rimanenti'] -= 1
+                                if g.get('prestato_a_gennaio'):
+                                    g['anni_prestito_rimanenti'] = g.get('anni_prestito_rimanenti', 1) - 0.5
+                                    g.pop('prestato_a_gennaio', None) # Dal prossimo anno tornerà un anno pieno normale!
+                                else:
+                                    g['anni_prestito_rimanenti'] = g.get('anni_prestito_rimanenti', 1) - 1
                                 if g['anni_prestito_rimanenti'] > 0:
                                     nuova_rosa.append(g) 
                         elif g.get("prestato_a"):
@@ -1332,8 +1899,15 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                                 else: dati['bilancio']['costi']['minusvalenze'] += abs(diff)
                             else:
                                 g['valore_residuo'] = max(0, g['valore_residuo'] - amm_da_togliere)
-                                g['anni_trascorsi'] += 1
-                                g['anni_prestito_rimanenti'] -= 1
+                                if (g.get('acquistato_a_gennaio', False) or g.get('rinnovato_a_gennaio', False)) and g.get('anni_trascorsi', 0) == 0:
+                                    g['anni_trascorsi'] += 0.5
+                                else:
+                                    g['anni_trascorsi'] += 1
+                                if g.get('prestato_a_gennaio'):
+                                    g['anni_prestito_rimanenti'] = g.get('anni_prestito_rimanenti', 1) - 0.5
+                                    g.pop('prestato_a_gennaio', None) # Dal prossimo anno tornerà un anno pieno normale!
+                                else:
+                                    g['anni_prestito_rimanenti'] = g.get('anni_prestito_rimanenti', 1) - 1
                                 if g['anni_prestito_rimanenti'] > 0:
                                     nuova_rosa.append(g) 
                                 else:
@@ -1350,7 +1924,10 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                                 amm_da_togliere /= 2 
                                 
                             g['valore_residuo'] = max(0, g['valore_residuo'] - amm_da_togliere)
-                            g['anni_trascorsi'] += 1
+                            if (g.get('acquistato_a_gennaio', False) or g.get('rinnovato_a_gennaio', False)) and g.get('anni_trascorsi', 0) == 0:
+                                g['anni_trascorsi'] += 0.5
+                            else:
+                                g['anni_trascorsi'] += 1
                             
                             if g['anni_trascorsi'] < g['anni_contratto']:
                                 nuova_rosa.append(g)
@@ -1373,7 +1950,6 @@ elif menu == "8. Chiusura Fiscale Bilancio":
         # Intercetta il comando di festa dal popup e fa esplodere i palloncini
         if st.session_state.get('mostra_festa'):
             st.success("✅ Chiusura Fiscale Completata! Bilanci azzerati, contratti scaduti rimossi, prestiti e riscatti processati per la nuova stagione.")
-            st.balloons()
             st.session_state.mostra_festa = False # Resetta per non far piovere palloncini all'infinito
 
     st.divider()
@@ -1480,10 +2056,10 @@ elif menu == "10. Regolamento Ufficiale":
     st.markdown("""
     Il presente regolamento disciplina l'organizzazione e la gestione sportivo-finanziaria delle società appartenenti alla Osei Football League. Il sistema manageriale impone il rigoroso rispetto dei vincoli economici, strutturati sulla netta separazione tra due principi contabili fondamentali:
 
-    * **La Liquidità (Cassa):** Rappresenta il capitale circolante a disposizione della società per effettuare transazioni immediate (es. rilanci d'asta, offerte di mercato). Le variazioni di liquidità si registrano contestualmente al momento dell'esborso o dell'incasso reale. I fondi in cassa non si azzerano mai a fine anno.
+    * **La Liquidità (Cassa):** Rappresenta il capitale circolante a disposizione della società per effettuare transazioni immediate. Le variazioni di liquidità si registrano contestualmente al momento dell'esborso o dell'incasso reale. I fondi in cassa non si azzerano mai a fine anno.
     * **Il Bilancio d'Esercizio:** Rappresenta il documento contabile di fine stagione che riepiloga i Costi e i Ricavi imputabili al singolo anno sportivo, al fine di determinare il risultato d'esercizio (Utile o Perdita) e valutare il rispetto del Fair Play Finanziario. Il Bilancio viene azzerato al termine di ogni stagione sportiva.
     
-    ### 1.1 Capitale Sociale Iniziale (Anno 1)
+    ### 1.1 Capitale Sociale Iniziale
     All'atto della costituzione delle società sportive, la Direzione provvede all'assegnazione di un fondo iniziale pari a **500 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
     """)
     st.info("**Nota:** Al fine di non alterare i parametri del Fair Play Finanziario, tale somma iniziale transita **esclusivamente nella Cassa reale** e non concorre in alcun modo a formare il Valore della Produzione (Ricavi) del primo Bilancio d'Esercizio.")
@@ -1496,7 +2072,7 @@ elif menu == "10. Regolamento Ufficiale":
     All'apertura di ogni stagione, le società devono strutturare le proprie fondamenta commerciali scegliendo l'impianto sportivo e registrando il Main Sponsor.
     
     ### 2.1 Impianti Sportivi
-    Ciascuna società ha l'obbligo di selezionare la capienza del proprio impianto sportivo. Da tale scelta derivano specifici oneri fissi di gestione (da imputare nei Costi di Bilancio) e proventi legati ai risultati delle partite disputate in casa (da imputare in Cassa e nei Ricavi di Bilancio):
+    Ciascuna società ha l'obbligo di selezionare la capienza del proprio impianto sportivo. Da tale scelta derivano specifici oneri fissi di gestione (da imputare in Cassa e nei Costi di Bilancio) e proventi legati ai risultati delle partite disputate in casa (da imputare in Cassa e nei Ricavi di Bilancio):
     * **Impianto di 1ª Categoria (20.000 posti):**
       * Costo fisso annuo: **7 milioni**
       * Incasso base per partita: **0.2 milioni**
@@ -1527,6 +2103,8 @@ elif menu == "10. Regolamento Ufficiale":
     * **6ª Classificata:** 45 milioni
     * **7ª Classificata:** 42 milioni
     * **8ª Classificata:** 40 milioni
+
+    Tali somme di denaro generano un flusso positivo di Cassa e vanno registrate nei Ricavi di Bilancio.
     """)
 
     st.divider()
@@ -1548,13 +2126,14 @@ elif menu == "10. Regolamento Ufficiale":
     * Costo d'acquisto da 86 a 130 milioni: Stipendio annuale di **7.0 milioni**
     * Costo d'acquisto da 131 milioni in su: Stipendio annuale di **11.0 milioni**
     
-    Eventuali rinnovi contrattuali comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere. **La durata massima consentita per un rinnovo è di 3 anni.** Una volta scaduto il contratto di un giocatore non è più possibile firmare il rinnovo.
+    Eventuali rinnovi contrattuali comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere. **La durata massima consentita per un rinnovo è di 5 anni.** Una volta scaduto il contratto di un giocatore non è più possibile firmare il rinnovo.
     """)
 
     st.divider()
 
     # SECTION 4
-    st.subheader("4. Operazioni di Mercato e Imputazioni Contabili")
+    st.subheader("4. Operazioni di Mercato e Conseguenze Contabili")
+    
     st.markdown("""
     ### 4.1 Acquisizione a Titolo Definitivo di un Calciatore
     L'acquisizione dei diritti alle prestazioni sportive di un calciatore genera i seguenti effetti:
@@ -1581,20 +2160,37 @@ elif menu == "10. Regolamento Ufficiale":
     st.markdown("""
     ### 4.2 Acquisti in Sessione Invernale (Gennaio)
     Le operazioni di mercato concluse durante la sessione di Gennaio sono soggette a un trattamento contabile specifico, volto a riflettere l'utilizzo del calciatore per il solo girone di ritorno (6 mesi).
-    1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
-    2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza. Tale regola si applica anche nell'eventualità in cui il calciatore venga immediatamente girato in prestito altrove.
-    3. **Valore Residuo:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza.
-    4. **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
     
+    1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
+    2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza.    
+    3. **Valore Residuo e Invecchiamento:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza. Inoltre, alla prima Chiusura Fiscale estiva successiva all'acquisto, l'età contrattuale del calciatore (anni trascorsi) avanzerà matematicamente di sole 0.5 stagioni, allineandosi perfettamente alla nuova annata sportiva.
+    """)
+    
+    # ESEMPIO 2 HTML
+    st.markdown("""
+    <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
+        <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
+            Esempio Pratico: Acquisto in sessione invernale
+        </div>
+        <div style="padding: 12px; color: #1F2937;">
+            La società si aggiudica il <em>Calciatore X</em> per <strong>25 milioni</strong>, siglando un contratto triennale (2.5 anni nella realtà).
+            <ul style="margin-bottom: 0; padding-top: 8px;">
+                <li><strong>Impatto sulla Cassa:</strong> Decremento immediato di 25 milioni.</li>
+                <li><strong>Impatto a Bilancio (primo anno):</strong> Iscrizione nei Costi di <strong>5 milioni</strong> di ammortamento (25 / 5) e di <strong>1.25 milioni</strong> di stipendio.</li>
+                <li><strong>Impatto a Bilancio (anni successivi):</strong> Iscrizione nei Costi di <strong>10 milioni</strong> di ammortamento e di <strong>2.5 milioni</strong> di stipendio.</li>
+            </ul>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
     ### 4.3 Cessione a Titolo Definitivo e Rilevazione di Plusvalenze/Minusvalenze
     Il **Valore Residuo** di un calciatore è il valore patrimoniale netto del cartellino, calcolato sottraendo dal costo storico gli ammortamenti già contabilizzati negli esercizi precedenti. La cessione di un tesserato genera:
     1. **Sotto il profilo della Liquidità (Cassa):** Accredito istantaneo del corrispettivo pattuito per la vendita.
     2. **Sotto il profilo Economico (Bilancio):** L'interruzione degli oneri futuri (ammortamento e stipendio non ancora maturati) e la rilevazione nel Bilancio dell'anno in corso di una **Plusvalenza** (se il prezzo di vendita è superiore al Valore Residuo) o di una **Minusvalenza** (se il prezzo di vendita è inferiore al Valore Residuo), rispettivamente nei Ricavi o nei Costi.
-    
-    **⛔ Vincolo per Cessioni di giocatori in prestito:** Non è assolutamente consentito vendere a titolo definitivo o inserire in scambi di mercato un calciatore che si trova attualmente ceduto in prestito presso un'altra società. È necessario prima accordarsi con la controparte per l'interruzione anticipata del prestito e richiamare il giocatore nella rosa attiva.
     """)
     
-    # ESEMPIO 2 HTML
+    # ESEMPIO 3 HTML
     st.markdown("""
     <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
         <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
@@ -1609,59 +2205,67 @@ elif menu == "10. Regolamento Ufficiale":
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.markdown("""
-    ### 4.4 Scambi di Giocatori tra Società
-    Nel sistema manageriale, lo scambio puro di giocatori senza transazione economica non è contemplato. Ogni calciatore possiede un proprio Valore Residuo a bilancio, pertanto ogni scambio deve essere monetizzato per calcolare le corrette plusvalenze o minusvalenze.
     
-    In caso di scambio di giocatori tra due società, i presidenti hanno l'obbligo di concordare e dichiarare un **Valore di Scambio**. 
-    Di conseguenza, l'operazione verrà registrata come due cessioni a titolo definitivo distinte, effettuate al medesimo prezzo concordato:
-    1. **Effetto sulla Cassa:** Se lo scambio è "alla pari" (stesso valore per entrambi), i movimenti di cassa si annullano a vicenda, lasciando la Liquidità inalterata. Se è previsto un **conguaglio economico** (es. un giocatore è valutato più dell'altro), la cassa registrerà la differenza.
-    2. **Effetto a Bilancio:** Il valore concordato andrà a scontrarsi con il Valore Residuo dei rispettivi giocatori, generando regolarmente le Plusvalenze o Minusvalenze nei bilanci di entrambe le società.
-    """)
-
     st.markdown("""
+    **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
+    
+    **Vincolo per Cessioni di giocatori in prestito:** Non è assolutamente consentito vendere a titolo definitivo o inserire in scambi di mercato un calciatore che si trova attualmente ceduto in prestito presso un'altra società. È necessario prima accordarsi con la controparte per l'interruzione anticipata del prestito e richiamare il giocatore nella rosa attiva.
+    
+    ### 4.4 Scambi di Giocatori tra Società
+    Nel sistema manageriale, lo scambio puro di giocatori senza transazione economica non è contemplato. Le due società sono obbligate a dichiarare come prezzo di vendita l'**esatto Valore Residuo** del proprio giocatore. In questo modo non verranno generate plusvalenze o minusvalenze, e l'eventuale differenza tra i due valori si tradurrà automaticamente in un conguaglio economico in Cassa a favore di chi cede il giocatore col valore residuo più alto.
+    
     ### 4.5 Trasferimenti a Titolo Temporaneo (Prestiti)
-    Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: prestito secco, prestito con diritto di riscatto e prestito con obbligo di riscatto.
-
-    **Regola UEFA per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, **è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso**. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
-
-    **Prestito Oneroso e Impatto Contabile Immediato:** L'eventuale onere in denaro pattuito per l'affitto temporaneo genera un impatto istantaneo: l'importo viene detratto immediatamente dalla Liquidità dell'acquirente e versato alla cedente. A livello di Bilancio, per l'esercizio in corso, l'importo costituisce una **Plusvalenza** per la cedente e una **Minusvalenza** (costo di locazione) per l'acquirente.
-
-    **Ammortamenti e Oneri Salariali:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
-    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio. Tali calciatori, pur non essendo nella rosa attiva, figurano in un apposito registro del gestionale per garantire il monitoraggio del loro impatto finanziario.
-    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a libera contrattazione (es. 50% e 50%, 100% all'acquirente, ecc.). Le quote proporzionali pattuite si rifletteranno sul "Monte Ingaggi" dei rispettivi Bilanci.
-    * **💡 Condivisione Stipendi Invernale (Il calcolo del 25%):** In caso di prestito stipulato nella sessione di Gennaio con condivisione dell'ingaggio (es. si concorda di far pagare all'acquirente il 50% dello stipendio per i soli 6 mesi restanti), la percentuale da inserire nel gestionale dovrà essere **dimezzata a 25%**. Questo perché il sistema applica la percentuale di compartecipazione sull'intero monte ingaggi annuale del calciatore alla fine dell'esercizio.
-
-    **Risoluzione Anticipata del Prestito:** Le due società coinvolte possono accordarsi in qualsiasi momento per l'interruzione anticipata del prestito. Tramite l'apposita funzione del gestionale, il calciatore farà rientro immediato nella rosa attiva della società madre. La risoluzione anticipata annulla in automatico qualsiasi precedente accordo relativo a diritti o obblighi di riscatto.
-
-    **Esercizio del Riscatto e Dinamica Contabile:** Qualora venga esercitato il riscatto (prenotabile durante l'anno), l'operazione si converte in una Cessione a Titolo Definitivo all'atto della **Chiusura Fiscale** di fine stagione.
-    1. Il sistema provvede innanzitutto a scalare l'ultima quota di ammortamento a carico della società cedente per la stagione appena conclusa.
-    2. La Plusvalenza o Minusvalenza per la cedente viene quindi calcolata confrontando il prezzo di riscatto pattuito con il **nuovo Valore Residuo aggiornato e deprezzato** in quel preciso momento.
-    3. La società acquirente detrae l'importo dalla Cassa, subentra nella titolarità assumendosi il 100% degli oneri futuri e avvia un nuovo piano di ammortamento.
-
+    Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: **prestito secco**, **prestito con diritto di riscatto** e **prestito con obbligo di riscatto** (subordinato o meno al verificarsi di determinate condizioni sportive).
+    
+    **Regola UEFA per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
+    
+    **Prestito Oneroso e Impatto Contabile Immediato:** Le società possono pattuire un corrispettivo in denaro per l'affitto temporaneo del tesserato (Prestito Oneroso). L'eventuale onere pattuito genera un impatto istantaneo:
+    * **Cassa:** L'importo viene detratto immediatamente dalla Liquidità della società acquirente e versato sul conto della società cedente.
+    * **Bilancio:** Al fine di garantire il Fair Play dell'esercizio in corso, l'importo costituisce per la società cedente una **Plusvalenza** da iscrivere nei Ricavi, e per la società acquirente una **Minusvalenza** (costo di locazione) da iscrivere negli Oneri d'esercizio.
+    
+    *Nota bene:* In caso di interruzione anticipata del prestito oneroso, la quota iniziale versata a titolo di locazione non è soggetta ad alcun rimborso parziale o totale.
+    
+    **Ammortamenti, Oneri Salariali e Rappresentazione in Rosa:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
+    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio.
+    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a **libera contrattazione** tra le parti. Le società possono concordare qualsivoglia ripartizione percentuale (es. 50% e 50%, 100% a carico della cessionaria, 100% a carico della cedente). Le quote proporzionali così pattuite andranno obbligatoriamente iscritte alla voce "Monte Ingaggi" dei rispettivi Bilanci d'Esercizio.
+    * **Rappresentazione per la società acquirente:** Nel gestionale, la squadra che acquisisce il tesserato in prestito lo vedrà iscritto nella propria rosa attiva con un costo d'acquisto figurativo recante la dicitura "Prestito", ammortamento pari a zero, e alla voce stipendio riporterà unicamente l'importo relativo alla quota percentuale pattuita a proprio carico.
+    * **Prestito nella Sessione Invernale:** In caso di prestito stipulato nella sessione di Gennaio con condivisione dell'ingaggio, la quota di stipendio a carico della squadra acquirente viene calcolata solo sulla frazione di stagione rimanente (6 mesi). Se la durata del prestito è superiore all'anno, nella stagione sportiva successiva la quota di stipendio a carico dell'acquirente verrà ripristinata e calcolata sull'intero importo del compenso annuale.
+    
+    **Risoluzione Anticipata del Prestito:** Le due società coinvolte possono accordarsi in qualsiasi momento per l'interruzione anticipata del prestito e il calciatore farà rientro immediato nella rosa attiva della società madre. La risoluzione anticipata annulla in automatico qualsiasi precedente accordo relativo a diritti o obblighi di riscatto.
+    
+    **Esercizio del Riscatto:** Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti e obblighi di riscatto agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
+    
+    La formalizzazione del riscatto non produce alcun effetto immediato sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile, ovvero il transito del denaro in Cassa e il calcolo delle Plusvalenze/Minusvalenze da riscatto, viene posticipata e resa effettiva esclusivamente all'atto della Chiusura Fiscale di fine stagione, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
+    
+    Qualora venga esercitato il diritto di riscatto, o al maturare delle condizioni per l'obbligo di riscatto, l'operazione si converte in una **Cessione a Titolo Definitivo** a tutti gli effetti legali e contabili. A far data dall'effettiva esecuzione contabile del riscatto:
+    1. La società cedente incassa il corrispettivo pattuito nella Liquidità e calcola l'eventuale Plusvalenza o Minusvalenza, confrontando il prezzo di riscatto con il Valore Residuo del tesserato in quel preciso momento patrimoniale.
+    2. La società acquirente detrae l'importo dalla propria Liquidità, subentra nella titolarità del cartellino assumendosi il 100% degli oneri salariali futuri e avvia un nuovo piano di ammortamento basato sul costo del riscatto e sulla durata del nuovo contratto stipulato.
+    
     ### 4.6 Risoluzione Anticipata e Scadenza Naturale del Contratto
     L'interruzione anticipata del vincolo contrattuale (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
-    * **Impatto sulla Cassa:** Nessun introito.
-    * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo.
+    * **Impatto sulla Cassa:** Nessun introito (variazione nulla).
+    * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo. Come per le cessioni, lo svincolo in sessione invernale di un giocatore appena acquistato o rinnovato prenderà in esame il Valore Residuo intatto per il calcolo della minusvalenza (anti-doppia decurtazione).
     
-    **⛔ Vincolo Svincoli:** Analogamente alle cessioni, non è consentito svincolare un giocatore qualora questi si trovi in prestito.
-
-    **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento è giunto a naturale esaurimento. La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale per gli esercizi futuri.
-
-    ### 4.7 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento (Spalmatura)
-    Le società hanno la facoltà di prolungare il vincolo contrattuale di un proprio tesserato in qualsiasi momento prima della naturale scadenza (ad eccezione dei giocatori attualmente in prestito, che devono essere prima richiamati alla base).
+    Analogamente alle cessioni, non è consentito svincolare un giocatore qualora questi si trovi in prestito.
     
-    Per contrastare elusioni contabili, **è severamente vietato rinnovare un calciatore nella stessa esatta sessione di mercato in cui è stato acquistato**. Anche un giocatore acquistato nella sessione Estiva con un contratto di 1 anno, non potrà essere rinnovato immediatamente: la società dovrà sostenerne il costo d'ammortamento pieno e potrà proporre un rinnovo contrattuale solo all'apertura della successiva sessione Invernale (Gennaio), la quale ricalcolerà i costi in modalità pro-quota. I calciatori presenti in rosa dalle stagioni precedenti possono invece essere rinnovati in qualsiasi sessione.
+    **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
     
-    **La Nuova Durata:** Il rinnovo non "somma" anni al vecchio contratto, bensì lo **sovrascrive**, per un prolungamento **massimo di 3 anni**. Selezionare ad esempio "3 Anni" significa che il giocatore rimarrà vincolato alla società per la stagione sportiva in corso più le successive due.
+    ### 4.7 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
+    Le società hanno la facoltà di prolungare il contratto di un proprio tesserato. Tuttavia, ci sono dei vincoli che ogni società deve rispettare:
+    * Non è consentito rinnovare il contratto di un giocatore nella stessa sessione di mercato in cui è stato acquistato.
+    * Non è consentito rinnovare il contratto di un giocatore il cui contratto ha ancora una durata superiore ai 2 anni (il rinnovo è permesso solo in presenza di 1 o 2 anni residui).
+    * Non è consentito rinnovare il contratto di un giocatore mentre quest'ultimo si trova in prestito presso un'altra società.
     
-    La sottoscrizione di un rinnovo produce effetti contabili **immediati** sul Bilancio d'Esercizio in corso, ma con differenti logiche in base alla sessione:
-    * **☀️ Rinnovo Estivo (Inizio Stagione):** Lo stipendio annuale subisce un incremento obbligatorio del +15%. Il Valore Residuo attuale viene "spalmato" sui nuovi anni scelti, abbassando istantaneamente la Quota di Ammortamento annuale e fornendo un utile strumento per alleggerire il Bilancio della stagione in corso.
-    * **❄️ Rinnovo Invernale (Metà Stagione):** Il gestionale applicherà un esatto calcolo **Pro-Quota (50 e 50)** sul bilancio dell'anno in corso. Per la stagione corrente, la società pagherà un ammortamento e uno stipendio calcolati sommando metà del vecchio contratto maturato (da Luglio a Dicembre) e metà del nuovo contratto stipulato (da Gennaio a Giugno). Dall'anno fiscale successivo, i valori del nuovo contratto entreranno a regime al 100%.
+    Anche un giocatore acquistato nella sessione estiva con un contratto di 1 anno, non potrà essere rinnovato immediatamente: la società potrà proporre un rinnovo contrattuale solo all'apertura della successiva sessione Invernale.
+    
+    Il rinnovo non "somma" anni al vecchio contratto, bensì lo sovrascrive, per un prolungamento **massimo di 5 anni**. Come accade per gli acquisti, anche per i rinnovi stipulati nella sessione invernale la durata effettiva del nuovo contratto viene decurtata di 0.5 stagioni.
+    
+    La sottoscrizione di un rinnovo produce due effetti contabili sul Bilancio d'Esercizio, ma con differenti logiche in base alle sessione (estiva o invernale):
+    1. **Rinnovo Estivo:** Lo stipendio annuale subisce un incremento obbligatorio del +15%. Il Valore Residuo attuale viene "spalmato" sui nuovi anni scelti, abbassando istantaneamente la Quota di Ammortamento annuale e fornendo un utile strumento per alleggerire il Bilancio della stagione in corso.
+    2. **Rinnovo Invernale:** Il gestionale applicherà un esatto calcolo Pro-Quota (50 e 50) sul bilancio dell'anno in corso. Per la stagione corrente, la società pagherà un ammortamento e uno stipendio calcolati sommando metà del vecchio contratto maturato (da Luglio a Dicembre) e metà del nuovo contratto stipulato (da Gennaio a Giugno). Dall'anno fiscale successivo, i valori del nuovo contratto entreranno a regime al 100%. *Nota bene:* alla prima Chiusura Fiscale successiva al rinnovo invernale, il contratto avanzerà (invecchierà) di sole 0.5 stagioni.
     """)
-
-    # ESEMPIO 3 HTML
+    
+    # ESEMPIO 4 HTML
     st.markdown("""
     <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
         <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
@@ -1677,13 +2281,6 @@ elif menu == "10. Regolamento Ufficiale":
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.markdown("""
-    ### 4.8 Efficacia Temporale degli Accordi di Riscatto (Sistema di Prenotazione)
-    Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti/obblighi di riscatto agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
-
-    La formalizzazione del riscatto tramite il gestionale **non produce alcun effetto immediato** sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile (transito del denaro in Cassa e calcolo delle Plusvalenze/Minusvalenze) viene posticipata e resa effettiva **esclusivamente all'atto della Chiusura Fiscale di fine stagione**, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
-    """)
 
     st.divider()
 
