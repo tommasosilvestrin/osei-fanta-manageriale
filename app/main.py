@@ -1555,12 +1555,56 @@ elif menu == "7. Coppe (Italia & CL)":
             df_A = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_A.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
             df_B = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_B.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
 
+            # --- TABELLA CLASSIFICA GIRONI CUSTOM ---
+            st.markdown("""
+            <style>
+            .tabella-gironi {
+                border-collapse: collapse;
+                width: 100%;
+                background-color: white;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                font-family: sans-serif;
+                margin-bottom: 20px;
+                border: 1px solid #E2E8F0;
+            }
+            .tabella-gironi th {
+                background-color: #F8FAFC;
+                color: #64748B;
+                padding: 12px 15px;
+                font-size: 13px;
+                text-align: center;
+                border-bottom: 2px solid #E2E8F0;
+            }
+            .tabella-gironi td {
+                padding: 12px 15px;
+                font-size: 14px;
+                color: #334155;
+                text-align: center;
+                border-bottom: 1px solid #F1F5F9;
+            }
+            .tabella-gironi th:first-child, .tabella-gironi td:first-child {
+                text-align: left;
+            }
+            .tabella-gironi tr:last-child td {
+                border-bottom: none;
+            }
+            .tabella-gironi tr:hover {
+                background-color: #F1F5F9;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
             colA, colB = st.columns(2)
             
             with colA:
                 st.markdown("#### 🔵 Girone A")
-                # Mostriamo in classifica solo Squadra, Punti e DR (GF rimane nascosto ma lavora sull'ordinamento)
-                st.dataframe(df_A[["Squadra", "Punti", "DR"]], hide_index=True, use_container_width=True)
+                html_A = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
+                for _, row in df_A.iterrows():
+                    html_A += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
+                html_A += "</table>"
+                st.markdown(html_A, unsafe_allow_html=True)
                 
                 with st.expander("Calendario Girone A" if gironi_salvati else "Calendario Girone A"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
@@ -1589,9 +1633,11 @@ elif menu == "7. Coppe (Italia & CL)":
             
             with colB:
                 st.markdown("#### 🔴 Girone B")
-                # Il DataFrame df_B ora viene calcolato sopra insieme a df_A.
-                # Qui ci limitiamo a stamparlo mostrando solo Squadra, Punti e DR!
-                st.dataframe(df_B[["Squadra", "Punti", "DR"]], hide_index=True, use_container_width=True)
+                html_B = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
+                for _, row in df_B.iterrows():
+                    html_B += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
+                html_B += "</table>"
+                st.markdown(html_B, unsafe_allow_html=True)
                 
                 with st.expander("Calendario Girone B" if gironi_salvati else "Calendario Girone B"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
