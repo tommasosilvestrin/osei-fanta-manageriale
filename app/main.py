@@ -2287,7 +2287,23 @@ elif menu == "10. Regolamento Ufficiale":
     1. La società cedente incassa il corrispettivo pattuito nella Liquidità e calcola l'eventuale Plusvalenza o Minusvalenza, confrontando il prezzo di riscatto con il Valore Residuo del tesserato in quel preciso momento patrimoniale.
     2. La società acquirente detrae l'importo dalla propria Liquidità, subentra nella titolarità del cartellino assumendosi il 100% degli oneri salariali futuri e avvia un nuovo piano di ammortamento basato sul costo del riscatto e sulla durata del nuovo contratto stipulato.
     
-    ### 4.6 Risoluzione Anticipata e Scadenza Naturale del Contratto
+    ### 4.6 Dinamiche di Mercato con Campionati Esteri e Serie Inferiori
+    Le operazioni di mercato reali che coinvolgono campionati esteri o serie inferiori producono effetti obbligatori sui bilanci delle società.
+    
+    **Cessione a Titolo Definitivo:**  
+    Qualora un tesserato venga venduto a titolo definitivo nella realtà a un club estero o di categoria inferiore, la società proprietaria del cartellino procede alla cessione forzata. Il corrispettivo della vendita sarà pari alle cifre ufficiali del trasferimento reale. L'operazione genererà la relativa Plusvalenza o Minusvalenza.
+    
+    **Scadenza di Prestito Reale e Ritorno all'Estero:**  
+    Se una società acquista un calciatore che nella realtà milita in Serie A a titolo temporaneo (prestito), nel caso in cui il calciatore rientri al proprio club madre estero lasciando l'Italia, la società dovrà obbligatoriamente svincolare il giocatore, generando una **Minusvalenza Totale** pari al Valore Residuo non ancora ammortizzato.
+    
+    **Prestito all'Estero di giocatori di proprietà:**  
+    Qualora un tesserato di proprietà di una società venga ceduto in prestito temporaneo reale verso campionati esteri o serie inferiori, la società proprietaria dovrà procedere al prestito del calciatore per la stessa durata del prestito reale.
+    1. **Ammortamento:** Resta a carico della società per l'intera durata del prestito all'estero.
+    2. **Stipendio:** La società risparmierà il 100% dell'onere salariale per il periodo di prestito.
+    
+    Al termine del prestito reale, il giocatore tornerà a disposizione della società; qualora il club estero proceda invece al riscatto del giocatore e quindi all'acquisto definitivo, si applicherà la regola 1 (Cessione a Titolo Definitivo).
+
+    ### 4.7 Risoluzione Anticipata e Scadenza Naturale del Contratto
     L'interruzione anticipata del vincolo contrattuale (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
     * **Impatto sulla Cassa:** Nessun introito (variazione nulla).
     * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo. Come per le cessioni, lo svincolo in sessione invernale di un giocatore appena acquistato o rinnovato prenderà in esame il Valore Residuo intatto per il calcolo della minusvalenza (anti-doppia decurtazione).
@@ -2296,7 +2312,7 @@ elif menu == "10. Regolamento Ufficiale":
     
     **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
     
-    ### 4.7 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
+    ### 4.8 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
     Le società hanno la facoltà di prolungare il contratto di un proprio tesserato. Tuttavia, ci sono dei vincoli che ogni società deve rispettare:
     * Non è consentito rinnovare il contratto di un giocatore nella stessa sessione di mercato in cui è stato acquistato.
     * Non è consentito rinnovare il contratto di un giocatore il cui contratto ha ancora una durata superiore ai 2 anni (il rinnovo è permesso solo in presenza di 1 o 2 anni residui).
