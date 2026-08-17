@@ -25,13 +25,11 @@ def save_feed(data):
 def log_evento(nome_squadra, icona, testo):
     feed = load_feed()
     
-    # --- FIX SICUREZZA: Se per errore il file JSON è un dizionario, forzalo a lista vuota ---
     if not isinstance(feed, list):
         feed = []
         
     orario = (datetime.utcnow() + timedelta(hours=2)).strftime("%d/%m %H:%M")    
     
-    # Inserisce la nuova notizia in CIMA alla lista
     feed.insert(0, {"data": orario, "squadra": nome_squadra, "icona": icona, "testo": testo})
     save_feed(feed)
 
@@ -222,7 +220,7 @@ if menu == "1. Setup Società":
     st.header("🏢 Gestione Società")
 
     if not st.session_state.is_admin:
-        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di mercato.")
+        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di sistema.")
     else:
         with st.form("crea_squadra"):
             c1, c2 = st.columns(2)
@@ -303,7 +301,7 @@ if menu == "1. Setup Società":
                             st.warning("⚠️ Inserisci il nome dello sponsor prima di firmare!")
 
 # ==========================================
-# 2. DASHBOARD & ROSA (MODERN UI V5 - DEFINITIVA)
+# 2. DASHBOARD & ROSA
 # ==========================================
 elif menu == "2. Dashboard & Rosa":
     
@@ -509,10 +507,10 @@ elif menu == "2. Dashboard & Rosa":
                 
                 # Definizione dei colori per i badge
                 badge_color = {
-                    "Portiere": "background-color: #F59E0B; color: white;",     # Giallo/Arancio
-                    "Difensore": "background-color: #3B82F6; color: white;",    # Blu
-                    "Centrocampista": "background-color: #10B981; color: white;", # Verde
-                    "Attaccante": "background-color: #EF4444; color: white;"    # Rosso
+                    "Portiere": "background-color: #F59E0B; color: white;",         # Giallo
+                    "Difensore": "background-color: #3B82F6; color: white;",        # Blu
+                    "Centrocampista": "background-color: #10B981; color: white;",   # Verde
+                    "Attaccante": "background-color: #EF4444; color: white;"        # Rosso
                 }
                 
                 for g in giocatori_con_costo:
@@ -653,7 +651,7 @@ elif menu == "3. Mercato (Definitivi)":
                     c = col3.number_input("Prezzo Acquisto (MLN)", min_value=1.0, step=1.0)
                     anni = st.slider("Anni Contratto", 1, 5, 3)
                     
-                    # Calcolo Stipendi (Aggiornato all'Opzione 2)
+                    # Calcolo Stipendi
                     s_base = 1.0 if c <= 15 else (2.5 if c <= 45 else (4.5 if c <= 85 else (7.0 if c <= 130 else 11.0)))
                     
                     is_gennaio = True if "Invernale" in sessione_acq else False
@@ -2042,7 +2040,7 @@ elif menu == "8. Chiusura Fiscale Bilancio":
 # ==========================================
 elif menu == "9. Cronologia Ufficialità":
     st.header("📰 Notiziario Ufficiale Lega")
-    st.caption("Il feed cronologico di tutte le operazioni societarie e di mercato in tempo reale.")
+    st.caption("L'elenco cronologico di tutte le operazioni societarie e di mercato in tempo reale.")
     st.divider()
     
     feed = load_feed()
@@ -2050,7 +2048,7 @@ elif menu == "9. Cronologia Ufficialità":
     if not feed:
         st.info("Nessuna operazione registrata finora.")
     else:
-        import re  # (Assicurati che sia importato, male non fa rimetterlo qui se serve)
+        import re
         
         # --- LA MAGIA DEL FILTRO ---
         # 1. Troviamo tutte le squadre uniche che hanno almeno una notizia nel feed
@@ -2098,14 +2096,14 @@ elif menu == "10. Regolamento Ufficiale":
     st.divider()
 
     # SECTION 1
-    st.subheader("1. Disposizioni Generali e Principi Contabili")
+    st.subheader("1. Disposizioni Generali")
     st.markdown("""
     Il presente regolamento disciplina l'organizzazione e la gestione sportivo-finanziaria delle società appartenenti alla Osei Football League. Il sistema manageriale impone il rigoroso rispetto dei vincoli economici, strutturati sulla netta separazione tra due principi contabili fondamentali:
 
     * **La Liquidità (Cassa):** Rappresenta il capitale circolante a disposizione della società per effettuare transazioni immediate. Le variazioni di liquidità si registrano contestualmente al momento dell'esborso o dell'incasso reale. I fondi in cassa non si azzerano mai a fine anno.
     * **Il Bilancio d'Esercizio:** Rappresenta il documento contabile di fine stagione che riepiloga i Costi e i Ricavi imputabili al singolo anno sportivo, al fine di determinare il risultato d'esercizio (Utile o Perdita) e valutare il rispetto del Fair Play Finanziario. Il Bilancio viene azzerato al termine di ogni stagione sportiva.
     
-    ### 1.1 Capitale Sociale Iniziale
+    ### 1.1 Capitale Iniziale
     All'atto della costituzione delle società sportive, la Direzione provvede all'assegnazione di un fondo iniziale pari a **500 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
     """)
     st.info("**Nota:** Al fine di non alterare i parametri del Fair Play Finanziario, tale somma iniziale transita **esclusivamente nella Cassa reale** e non concorre in alcun modo a formare il Valore della Produzione (Ricavi) del primo Bilancio d'Esercizio.")
@@ -2113,7 +2111,7 @@ elif menu == "10. Regolamento Ufficiale":
     st.divider()
     
     # SECTION 2
-    st.subheader("2. Infrastrutture e Sponsorizzazioni Commerciali")
+    st.subheader("2. Stadio e Sponsor")
     st.markdown("""
     All'apertura di ogni stagione, le società devono strutturare le proprie fondamenta commerciali scegliendo l'impianto sportivo e registrando il Main Sponsor.
     
@@ -2137,7 +2135,7 @@ elif menu == "10. Regolamento Ufficiale":
 
     💡 **Nota bene:** Il costo fisso annuo dell'impianto sportivo viene prelevato **immediatamente** dalla Liquidità (Cassa) all'atto della firma del contratto, prima ancora di iniziare il calciomercato.
     
-    ### 2.2 Sponsorizzazioni Commerciali
+    ### 2.2 Sponsorizzazioni
     Ciascuna società ha diritto alla sottoscrizione di un accordo di Main Sponsorship. Per la prima stagione di fondazione della Lega, al fine di garantire l'operatività e la sostenibilità iniziale, tutte le società percepiscono una quota fissa d'ingresso pari a **40 milioni**. 
 
     A partire dalla seconda stagione, l'importo erogato dallo sponsor all'inizio di ogni anno sportivo è calcolato esclusivamente in base al piazzamento ottenuto nella classifica generale della stagione antecedente:
@@ -2156,7 +2154,7 @@ elif menu == "10. Regolamento Ufficiale":
     st.divider()
 
     # SECTION 3
-    st.subheader("3. Gestione Sportiva: Composizione della Rosa e Contratti")
+    st.subheader("3. Composizione della Rosa e Contratti")
     st.markdown("""
     ### 3.1 Limiti e Composizione della Rosa
     Le società hanno la facoltà di tesserare un numero illimitato di calciatori (tra acquisti a titolo definitivo e trasferimenti temporanei), purché nel rigoroso rispetto dei vincoli economici e del Fair Play Finanziario imposti a Bilancio. 
@@ -2164,7 +2162,7 @@ elif menu == "10. Regolamento Ufficiale":
     Tuttavia, per partecipare alle competizioni ufficiali (Campionato e Coppe), ogni allenatore ha l'obbligo di comunicare alla Direzione una lista inderogabile di **25 calciatori convocabili** per l'intera durata della stagione. 
     La ripartizione per ruoli all'interno dei 25 scelti è vincolante ed è fissata a: **3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti**. I calciatori di proprietà non inseriti in questa speciale lista dei 25 restano a tutti gli effetti a libro paga della società (generando regolarmente oneri di stipendio e ammortamento), ma non potranno prendere parte ad alcuna gara ufficiale.
 
-    ### 3.2 Vincoli Contrattuali e Compensi
+    ### 3.2 Vincoli Contrattuali e Stipendi
     L'acquisizione di un calciatore comporta la contestuale stipula di un contratto di prestazione sportiva di durata compresa tra 1 e 5 anni. Tutti i contratti iniziano l'1 Gennaio oppure l'1 Luglio di ogni anno e terminano tutti il 30 Giugno. Il compenso annuale (Stipendio) costituisce un costo d'esercizio ricorrente, ed è parametrato al costo storico del cartellino:
     * Costo d'acquisto da 1 a 15 milioni: Stipendio annuale di **1.0 milioni**
     * Costo d'acquisto da 16 a 45 milioni: Stipendio annuale di **2.5 milioni**
@@ -2178,7 +2176,7 @@ elif menu == "10. Regolamento Ufficiale":
     st.divider()
 
     # SECTION 4
-    st.subheader("4. Operazioni di Mercato e Conseguenze Contabili")
+    st.subheader("4. Operazioni di Mercato")
     
     st.markdown("""
     ### 4.1 Acquisizione a Titolo Definitivo di un Calciatore
@@ -2230,7 +2228,7 @@ elif menu == "10. Regolamento Ufficiale":
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    ### 4.3 Cessione a Titolo Definitivo e Rilevazione di Plusvalenze/Minusvalenze
+    ### 4.3 Cessione a Titolo Definitivo
     Il **Valore Residuo** di un calciatore è il valore patrimoniale netto del cartellino, calcolato sottraendo dal costo storico gli ammortamenti già contabilizzati negli esercizi precedenti. La cessione di un tesserato genera:
     1. **Sotto il profilo della Liquidità (Cassa):** Accredito istantaneo del corrispettivo pattuito per la vendita.
     2. **Sotto il profilo Economico (Bilancio):** L'interruzione degli oneri futuri (ammortamento e stipendio non ancora maturati) e la rilevazione nel Bilancio dell'anno in corso di una **Plusvalenza** (se il prezzo di vendita è superiore al Valore Residuo) o di una **Minusvalenza** (se il prezzo di vendita è inferiore al Valore Residuo), rispettivamente nei Ricavi o nei Costi.
@@ -2312,7 +2310,7 @@ elif menu == "10. Regolamento Ufficiale":
     
     **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
     
-    ### 4.8 Rinnovo Contrattuale e Rimodulazione dell'Ammortamento
+    ### 4.8 Rinnovo Contrattuale
     Le società hanno la facoltà di prolungare il contratto di un proprio tesserato. Tuttavia, ci sono dei vincoli che ogni società deve rispettare:
     * Non è consentito rinnovare il contratto di un giocatore nella stessa sessione di mercato in cui è stato acquistato.
     * Non è consentito rinnovare il contratto di un giocatore il cui contratto ha ancora una durata superiore ai 2 anni (il rinnovo è permesso solo in presenza di 1 o 2 anni residui).
@@ -2392,11 +2390,11 @@ elif menu == "10. Regolamento Ufficiale":
     st.divider()
 
     # SECTION 6
-    st.subheader("6. Redazione e Chiusura del Bilancio d'Esercizio")
+    st.subheader("6. Chiusura del Bilancio d'Esercizio")
     st.markdown("""
     Al termine di ciascuna stagione sportiva, prima dell'avvio della sessione di mercato estiva successiva, le società hanno l'obbligo di redigere il Bilancio d'Esercizio, determinando il differenziale tra il Valore della Produzione e i Costi della Produzione. Questo è l'atto formale che chiude l'anno sportivo.
     
-    ### 6.1 Valore della Produzione (Ricavi d'Esercizio)
+    ### 6.1 Ricavi di Produzione
     Concorrono alla formazione dei ricavi le seguenti voci:
     * **Premi Sportivi:** Introiti accreditati a bilancio a seguito dei piazzamenti finali nelle competizioni ufficiali.
     * **Proventi da Sponsorizzazione:** Quota erogata all'apertura dell'esercizio (pari a 40 milioni fissi per tutti durante la prima stagione sportiva di fondazione; dalla seconda stagione in poi, determinata con criterio meritocratico in base alla classifica finale dell'anno precedente).
@@ -2404,7 +2402,7 @@ elif menu == "10. Regolamento Ufficiale":
     * **Plusvalenze Patrimoniali:** Utili generati dalla cessione dei diritti sulle prestazioni sportive.
     * **Nuovo Capitale:** Iniezione di liquidità garantita dalla Lega (pari a 70 milioni) iscritta a Bilancio all'apertura di ogni nuovo esercizio contabile **(esclusivamente a partire dalla seconda stagione)**.
 
-    ### 6.2 Costi della Produzione (Oneri d'Esercizio)
+    ### 6.2 Costi di Produzione
     Concorrono alla formazione dei costi le seguenti voci:
     * **Quote di Ammortamento:** Somma delle quote di competenza per l'esercizio in corso di tutti i tesserati (inclusi i giocatori ceduti in prestito temporaneo).
     * **Monte Ingaggi:** Ammontare complessivo delle retribuzioni fisse spettanti ai tesserati nell'esercizio in corso, al netto delle decurtazioni per i tesserati in prestito.
@@ -2414,7 +2412,7 @@ elif menu == "10. Regolamento Ufficiale":
     ### 6.3 Determinazione del Risultato d'Esercizio
     Il risultato d'esercizio si determina sottraendo il totale dei Costi della Produzione dal totale del Valore della Produzione (Ricavi - Costi).
 
-    ### 6.4 Flussi di Cassa e Ripianamento Perdite (Fair Play Finanziario)
+    ### 6.4 Flussi di Cassa e Fair Play Finanziario
     Al termine della stagione sportiva, all'atto formale della Chiusura Fiscale, il gestionale applica una procedura automatica e sequenziale in 4 fasi per riconciliare la Cassa reale con il Bilancio d'Esercizio:
     
     1. **Pagamento degli Oneri Correnti:** Viene materialmente prelevato dalla Cassa il fondo necessario al pagamento fisico degli stipendi maturati nell'anno (Monte Ingaggi). *Nota: I costi di gestione dello Stadio non vengono prelevati in questa fase in quanto già saldati anticipatamente all'apertura della stagione.*
