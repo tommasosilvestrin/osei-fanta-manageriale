@@ -93,8 +93,16 @@ def save_data(data, doc_name):
 
 def init_bilancio():
     return {
-        "ricavi": {"nuovo_capitale": 0.0, "premi_sportivi": 0.0, "sponsor": 0.0, "incassi_stadio": 0.0, "plusvalenze": 0.0},
-        "costi": {"ammortamenti": 0.0, "monte_ingaggi": 0.0, "gestione_stadio": 0.0, "minusvalenze": 0.0, "costi_giocatori_ceduti": 0.0},
+        "ricavi": {"nuovo_capitale": 0.0, 
+                   "premi_sportivi": 0.0,
+                   "sponsor": 0.0,
+                   # "incassi_stadio": 0.0,
+                   "plusvalenze": 0.0},
+        "costi": {"ammortamenti": 0.0,
+                  "monte_ingaggi": 0.0,
+                  # "gestione_stadio": 0.0,
+                  "minusvalenze": 0.0,
+                  "costi_giocatori_ceduti": 0.0},
         "storico_movimenti": []
     }
 
@@ -144,6 +152,67 @@ def genera_calendario_berger(squadre_lista, num_giornate):
         
     return full_calendar
 
+def verifica_obiettivi_dinamici():
+    # 1. Calcola vittorie e gol attuali
+    standings_temp = {s: {"V": 0, "GF": 0} for s in db.keys()}
+    if calendario:
+        for md in calendario:
+            for m in md:
+                if m.get("giocata"):
+                    gh, ga = m["gol_home"], m["gol_away"]
+                    standings_temp[m["home"]]["GF"] += gh
+                    standings_temp[m["away"]]["GF"] += ga
+                    if gh > ga: standings_temp[m["home"]]["V"] += 1
+                    elif ga > gh: standings_temp[m["away"]]["V"] += 1
+                
+    # 2. Raccoglie chi è in finale e chi ha vinto le coppe
+    finalisti = []
+    vincitori_coppe = []
+    
+    if coppe.get("ci", {}).get("semis_salvate"):
+        finalisti.extend([m.get("vincente") for m in coppe["ci"]["semis"] if m.get("vincente")])
+    if coppe.get("ci", {}).get("finale_salvata"):
+        vincitori_coppe.append(coppe["ci"]["finale"][0].get("vincente"))
+        
+    if coppe.get("cl", {}).get("semis_salvate"):
+        finalisti.extend([m.get("vincente") for m in coppe["cl"]["semis_ritorno"] if m.get("vincente")])
+    if coppe.get("cl", {}).get("finale_salvata"):
+        vincitori_coppe.append(coppe["cl"]["finale"][0].get("vincente"))
+
+    # 3. Controlla e Paga all'istante
+    for sq, dati in db.items():
+        obs = dati.get("sponsor", {}).get("obiettivi", {})
+        if not obs: continue
+        
+        pagati = dati["sponsor"].setdefault("obiettivi_pagati", [])
+        v = standings_temp[sq]["V"]
+        gf = standings_temp[sq]["GF"]
+        
+        for cat, premio in [("bronzo", 8.0), ("argento", 15.0), ("oro", 30.0)]:
+            ob = obs.get(cat, "")
+            # Se la casella è vuota o se i soldi sono GIÀ STATI PRESI, skippa!
+            if not ob or ob in pagati: continue
+            
+            sbloccato = False
+            # OBIETTIVI A TRAGUARDO (Gol, Vittorie, Coppe)
+            if "5 vittorie" in ob and v >= 5: sbloccato = True
+            elif "8 vittorie" in ob and v >= 8: sbloccato = True
+            elif "12 vittorie" in ob and v >= 12: sbloccato = True
+            elif "20 vittorie" in ob and v >= 20: sbloccato = True
+            elif "25 gol" in ob and gf >= 25: sbloccato = True
+            elif "35 gol" in ob and gf >= 35: sbloccato = True
+            elif "Finale" in ob and sq in finalisti: sbloccato = True
+            elif "Vinci una Coppa" in ob and sq in vincitori_coppe: sbloccato = True
+            
+            if sbloccato:
+                dati['cassa'] = round(dati['cassa'] + premio, 2)
+                dati['bilancio']['ricavi']['sponsor'] += premio
+                dati['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Immediato ({ob}): +{premio}M")
+                pagati.append(ob) # Lo segna come pagato!
+                log_evento(sq, "🎯", f"ha sbloccato in anticipo l'obiettivo stagionale **{ob}** incassando subito **{premio} M**!")
+                
+    save_data(db, DB_PATH)
+
 DB_PATH = "squadre"
 CAL_PATH = "calendario"
 COPPE_PATH = "coppe"
@@ -179,8 +248,7 @@ menu = st.sidebar.radio("Navigazione", [
     "6. Classifica Campionato",
     "7. Coppe (Italia & CL)",
     "8. Chiusura Fiscale Bilancio",
-    "9. Cronologia Ufficialità",
-    "10. Regolamento Ufficiale"
+    "9. Cronologia Ufficialità"
 ])
 
 # ==========================================
@@ -196,12 +264,12 @@ if menu != "9. Regolamento Ufficiale":
         if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
             sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
 
-# Scarica il CALENDARIO (serve solo in queste due pagine)
-if menu in ["5. Calendario & Partite", "6. Classifica Campionato"]:
+# Scarica il CALENDARIO
+if menu in ["5. Calendario & Partite", "6. Classifica Campionato", "8. Chiusura Fiscale Bilancio"]:
     calendario = load_data(CAL_PATH)
 
-# Scarica le COPPE (servono solo in queste due pagine)
-if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)"]:
+# Scarica le COPPE
+if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)", "8. Chiusura Fiscale Bilancio"]:
     coppe = load_data(COPPE_PATH)
     if not coppe: coppe = init_coppe()
 
@@ -230,7 +298,7 @@ if menu == "1. Setup Società":
                 if nome and mister and nome not in db:
                     db[nome] = {
                         "allenatore": mister, "cassa": 500.0,
-                        "stadio": {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0},
+                        # "stadio": {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0},
                         "sponsor": {"nome": None, "valore": 0},
                         "rosa": [], "bilancio": init_bilancio()
                     }
@@ -244,59 +312,129 @@ if menu == "1. Setup Società":
             sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
             sq_dati = db[sq_sel]
             
-            col1, col2 = st.columns(2)
+            # col1, col2 = st.columns(2)
             
-            with col1:
-                st.subheader("Stadio")
-                # CONTROLLO: Se lo stadio è già stato scelto, nasconde il menu e mostra l'info
-                if sq_dati["stadio"].get("livello"):
-                    st.info(f"✅ **Stadio Confermato:** Impianto da {sq_dati['stadio']['livello']} posti.")
-                else:
-                    stadi = {
-                        "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
-                        "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
-                        "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
-                    }
-                    scelta = st.selectbox("Livello Stadio", list(stadi.keys()))
-                    if st.button("Firma Contratto Stadio"):
-                        costo_nuovo = stadi[scelta]["costo"]
-                        costo_vecchio = sq_dati["bilancio"]["costi"]["gestione_stadio"]
+            # with col1:
+            #     st.subheader("Stadio")
+            #     # CONTROLLO: Se lo stadio è già stato scelto, nasconde il menu e mostra l'info
+            #     if sq_dati["stadio"].get("livello"):
+            #         st.info(f"✅ **Stadio Confermato:** Impianto da {sq_dati['stadio']['livello']} posti.")
+            #     else:
+            #         stadi = {
+            #             "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
+            #             "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
+            #             "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
+            #         }
+            #         scelta = st.selectbox("Livello Stadio", list(stadi.keys()))
+            #         if st.button("Firma Contratto Stadio"):
+            #             costo_nuovo = stadi[scelta]["costo"]
+            #             costo_vecchio = sq_dati["bilancio"]["costi"]["gestione_stadio"]
                         
-                        # Rimborsa l'eventuale stadio vecchio (se sta cambiando idea) e addebita il nuovo
-                        sq_dati["cassa"] = round(sq_dati["cassa"] + costo_vecchio - costo_nuovo, 2)
+            #             # Rimborsa l'eventuale stadio vecchio (se sta cambiando idea) e addebita il nuovo
+            #             sq_dati["cassa"] = round(sq_dati["cassa"] + costo_vecchio - costo_nuovo, 2)
                         
-                        sq_dati["stadio"] = stadi[scelta]
-                        sq_dati["bilancio"]["costi"]["gestione_stadio"] = costo_nuovo
+            #             sq_dati["stadio"] = stadi[scelta]
+            #             sq_dati["bilancio"]["costi"]["gestione_stadio"] = costo_nuovo
                         
-                        if costo_vecchio == 0:
-                            sq_dati['bilancio']['storico_movimenti'].append(f"Affitto Stadio ({stadi[scelta]['livello']}): -{costo_nuovo}M")
+            #             if costo_vecchio == 0:
+            #                 sq_dati['bilancio']['storico_movimenti'].append(f"Affitto Stadio ({stadi[scelta]['livello']}): -{costo_nuovo}M")
                         
-                        save_data(db, DB_PATH)
-                        log_evento(sq_sel, "🏟️", f"ha ufficializzato il nuovo stadio ({stadi[scelta]['livello']}).")
-                        st.toast(f"Stadio firmato! Pagato l'affitto annuale di {costo_nuovo}M.", icon="🏟️")
-                        st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
+            #             save_data(db, DB_PATH)
+            #             log_evento(sq_sel, "🏟️", f"ha ufficializzato il nuovo stadio ({stadi[scelta]['livello']}).")
+            #             st.toast(f"Stadio firmato! Pagato l'affitto annuale di {costo_nuovo}M.", icon="🏟️")
+            #             st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
 
-            with col2:
-                st.subheader("Sponsor")
-                # CONTROLLO: Se lo sponsor ha già un nome, nasconde l'input e mostra l'info
-                if sq_dati["sponsor"].get("nome"):
-                    st.info(f"✅ **Sponsor Confermato:** Accordo siglato con {sq_dati['sponsor']['nome']}.")
-                else:
-                    ns = st.text_input("Nome Sponsor", value=sq_dati["sponsor"]["nome"] or "")
+            # with col2:
+            st.subheader("💼 Gestione Sponsor e Obiettivi")
+
+            # Liste degli obiettivi esatti
+            ob_bronzo = [
+                "1. Non arrivare all'8° posto in campionato", 
+                "2. Almeno 8 vittorie in Campionato", 
+                "3. Segna almeno 35 gol in Campionato"
+            ]
+            ob_argento = [
+                "1. Arriva tra le prime 4 in campionato", 
+                "2. Almeno 12 vittorie in campionato", 
+                "3. Raggiungi una Finale (Coppa Italia o Champions League)"
+            ]
+            ob_oro = [
+                "1. Vinci il Campionato", 
+                "2. Almeno 20 vittorie in Campionato", 
+                "3. Vinci una Coppa (Coppa Italia o Champions League)"
+            ]
+
+            # Mappa segreta per far capire al programma la "Famiglia" dell'obiettivo
+            tipo_obiettivo = {
+                "1. Non arrivare all'8° posto in campionato": "Piazzamento",
+                "2. Almeno 8 vittorie in Campionato": "Vittorie",
+                "3. Segna almeno 35 gol in Campionato": "Speciali",
+                
+                "1. Arriva tra le prime 4 in campionato": "Piazzamento",
+                "2. Almeno 12 vittorie in campionato": "Vittorie",
+                "3. Raggiungi una Finale (Coppa Italia o Champions League)": "Speciali",
+                
+                "1. Vinci il Campionato": "Piazzamento",
+                "2. Almeno 20 vittorie in Campionato": "Vittorie",
+                "3. Vinci una Coppa (Coppa Italia o Champions League)": "Speciali"
+            }
+
+            # CONTROLLO: Se lo sponsor ha già un nome, nasconde gli input e mostra l'info
+            if sq_dati["sponsor"].get("nome"):
+                st.info(f"✅ **Sponsor Confermato:** Accordo base di 30M siglato con **{sq_dati['sponsor']['nome']}**.")
+                st.write("🎯 **Obiettivi scelti per questa stagione:**")
+                st.markdown(f"- 🥉 {sq_dati['sponsor']['obiettivi']['bronzo']} (8M)")
+                st.markdown(f"- 🥈 {sq_dati['sponsor']['obiettivi']['argento']} (15M)")
+                st.markdown(f"- 🥇 {sq_dati['sponsor']['obiettivi']['oro']} (30M)")
+            else:
+                with st.container(border=True):
+                    st.write("La firma garantisce un introito base di **30 Milioni** istantanei. I premi degli obiettivi verranno erogati a fine anno.")
+                    ns = st.text_input("Nome del Main Sponsor")
                     
-                    if st.button("Firma Accordo Sponsor"):
-                        if ns.strip(): # Evita che qualcuno firmi lasciando il nome vuoto
-                            sq_dati["sponsor"] = {"nome": ns, "valore": 40.0}
-                            # Accredita i 40M solo se la voce sponsor a bilancio è ancora a zero
+                    st.write("Scegli un obiettivo per categoria. **Non puoi ripetere la stessa tipologia (Piazzamento, Vittorie, Coppe/Gol)**.")
+                    scelta_br = st.selectbox("🥉 Bronzo (8 Milioni)", ob_bronzo)
+                    scelta_ar = st.selectbox("🥈 Argento (15 Milioni)", ob_argento)
+                    scelta_or = st.selectbox("🥇 Oro (30 Milioni)", ob_oro)
+                    
+                    # --- CONTROLLO LOGICO SULLE SCELTE ---
+                    # Creiamo una lista con le tre "famiglie" scelte dall'utente
+                    tipi_selezionati = [tipo_obiettivo[scelta_br], tipo_obiettivo[scelta_ar], tipo_obiettivo[scelta_or]]
+                    
+                    # Il comando 'set' rimuove i doppioni. Se la lunghezza è < 3, vuol dire che ha ripetuto qualcosa!
+                    ha_duplicati = len(set(tipi_selezionati)) < 3
+                    
+                    if ha_duplicati:
+                        st.error("⚠️ **ERRORE:** Hai selezionato più obiettivi della stessa tipologia. Modifica le scelte per poter firmare il contratto.")
+                    else:
+                        st.success("✅ Obiettivi diversificati correttamente! Il contratto è pronto.")
+                    
+                    st.divider()
+                    
+                    # Il bottone viene disattivato (disabled=True) se ci sono duplicati o manca il nome
+                    if st.button("Firma Contratto Sponsor", type="primary", disabled=ha_duplicati):
+                        if ns.strip():
+                            # Salviamo il nome e i 3 obiettivi scelti nel database della squadra
+                            sq_dati["sponsor"] = {
+                                "nome": ns, 
+                                "valore_base": 30.0,
+                                "obiettivi": {
+                                    "bronzo": scelta_br,
+                                    "argento": scelta_ar,
+                                    "oro": scelta_or
+                                },
+                                "obiettivi_pagati": []
+                            }
+                            
+                            # Accredita i 30M fissi se la voce sponsor a bilancio è a zero
                             if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
-                                sq_dati["bilancio"]["ricavi"]["sponsor"] = 40.0
-                                sq_dati["cassa"] = round(sq_dati["cassa"] + 40.0, 2)
-                                sq_dati['bilancio']['storico_movimenti'].append(f"Sponsor di Fondazione: +40.0M")
+                                sq_dati["bilancio"]["ricavi"]["sponsor"] = 30.0
+                                sq_dati["cassa"] = round(sq_dati["cassa"] + 30.0, 2)
+                                sq_dati['bilancio']['storico_movimenti'].append(f"Base Fissa Sponsor: +30.0M")
                             
                             save_data(db, DB_PATH)
-                            log_evento(sq_sel, "💼", f"ha firmato il contratto di Sponsorizzazione Stagionale per **40.0 M**.")
-                            st.toast(f"Sponsor {ns} firmato! 40 Milioni accreditati.", icon="💼")
-                            st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
+                            log_evento(sq_sel, "💼", f"ha firmato con **{ns}**. Punta all'obiettivo Oro: *{scelta_or.split(' (')[0]}*.")
+                            st.toast(f"Sponsor {ns} firmato! 30 Milioni di base accreditati.", icon="💼")
+                            st.rerun()
                         else:
                             st.warning("⚠️ Inserisci il nome dello sponsor prima di firmare!")
 
@@ -503,7 +641,7 @@ elif menu == "2. Dashboard & Rosa":
                 ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
                 giocatori_con_costo = sorted(giocatori_con_costo, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
                 html_table = "<table class='roster-table'>"
-                html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Residui</th><th>Costo Acquisto</th><th>Ammortamento</th><th>Stipendio</th><th>Costo Bilancio</th><th>Valore Residuo</th></tr>"
+                html_table += "<tr><th>Nome</th><th>Ruolo</th><th>Anni Residui</th><th>Costo Acquisto</th><th>Valore Residuo</th><th>Ammortamento</th><th>Stipendio</th><th>Costo Bilancio</th></tr>"
                 
                 # Definizione dei colori per i badge
                 badge_color = {
@@ -525,7 +663,7 @@ elif menu == "2. Dashboard & Rosa":
                         anni_format = f"{g['anni_str']}"
 
                     # QUI LA MAGIA: Togliamo tutti i :.2f perché i numeri sono già stati formattati nel blocco sopra
-                    html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{badge_html}</td><td>{anni_format}</td><td>{g['acquisto']}</td><td>{g['amm']}</td><td>{g['stip']}</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']}</td><td><strong>{g['val_res']}</strong></td></tr>"
+                    html_table += f"<tr><td><strong>{g['nome']}</strong></td><td>{badge_html}</td><td>{anni_format}</td><td>{g['acquisto']}</td><td><strong>{g['val_res']}</strong></td><td>{g['amm']}</td><td>{g['stip']}</td><td style='color: #EF4444; font-weight: 600;'>{g['costo_totale']}</td></tr>"
 
                 html_table += "</table>"
                 st.markdown(html_table, unsafe_allow_html=True)
@@ -540,13 +678,13 @@ elif menu == "2. Dashboard & Rosa":
                 
                 # Tabella leggermente trasparente per far capire che non sono attivi
                 html_fuori = "<table class='roster-table' style='opacity: 0.85;'>"
-                html_fuori += "<tr><th>Nome</th><th>Ruolo</th><th>Prestato a</th><th>Anni Residui</th><th>Ammortamento</th><th>Stipendio</th><th>% Stipendio</th><th>Valore Residuo</th></tr>"
+                html_fuori += "<tr><th>Nome</th><th>Ruolo</th><th>Prestato a</th><th>Anni Residui</th><th>Valore Residuo</th><th>Ammortamento</th><th>Stipendio</th><th>% Stipendio</th></tr>"
                 
                 for g in giocatori_fuori:
                     perc_pagata_da_loro = g.get('perc_stipendio_pagato', 100)
                     anni_res_fuori = g['anni_contratto'] - g.get('anni_trascorsi', 0)
                     
-                    html_fuori += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['prestato_a']}</td><td>{anni_res_fuori}</td><td><span style='color: #EF4444;'>{g['ammortamento_annuo']:.2f} M</span></td><td>{g['stipendio']:.2f} M</td><td><span style='color: #10B981; font-weight: 600;'>{perc_pagata_da_loro}%</span></td><td><strong>{g['valore_residuo']:.2f} M</strong></td></tr>"
+                    html_fuori += f"<tr><td><strong>{g['nome']}</strong></td><td>{g['ruolo'][:3].upper()}</td><td>{g['prestato_a']}</td><td>{anni_res_fuori}</td><td><strong>{g['valore_residuo']:.2f} M</strong></td><td><span style='color: #EF4444;'>{g['ammortamento_annuo']:.2f} M</span></td><td>{g['stipendio']:.2f} M</td><td><span style='color: #10B981; font-weight: 600;'>{perc_pagata_da_loro}%</span></td></tr>"
                     
                 html_fuori += "</table>"
                 st.markdown(html_fuori, unsafe_allow_html=True)
@@ -637,7 +775,7 @@ elif menu == "3. Mercato (Definitivi)":
             # Creiamo una lista della rosa ordinata in base al valore del dizionario sopra
             rosa_ordinata = sorted(squadra['rosa'], key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
             
-            t1, t2, t3, t4 = st.tabs(["Acquista", "Vendi", "Svincola", "Rinnovo"])
+            t1, t3, t4, t5 = st.tabs(["Acquista", "Vendi", "Svincola", "Rinnovo"])
             
             with t1:
                 # Sostituiamo st.form con st.container per avere l'aggiornamento in tempo reale!
@@ -680,8 +818,92 @@ elif menu == "3. Mercato (Definitivi)":
                             
                             # AGGIORNIAMO IL SEGNAPOSTO
                             info_header.write(f"💰 **Cassa:** {squadra['cassa']:.2f} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
+                     
+            # with t2:
+            #     st.subheader("🔥 Esercita Clausola Rescissoria")
+            #     st.markdown("Paga il **Doppio del Valore Residuo** per acquistare un giocatore di un'altra squadra!")
+                
+            #     sessione_clausola = st.radio("Sessione di Mercato (Clausola)", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_clausola")
+            #     is_gen_clausola = "Invernale" in sessione_clausola
+            #     st.divider()
+                
+            #     col_A, col_B = st.columns(2)
+            #     sq_acquirente = col_A.selectbox("Società acquirente", list(db.keys()), key="clausola_acq")
+            #     sq_derubata = col_B.selectbox("Società cedente", [s for s in db.keys() if s != sq_acquirente], key="clausola_der")
+                
+            #     # Filtriamo i giocatori che NON sono in prestito (non puoi pagare la clausola per un giocatore in prestito)
+            #     rosa_derubabile = [g for g in db[sq_derubata]['rosa'] if not g.get('prestato_a') and not g.get('in_prestito_da')]
+                
+            #     if not rosa_derubabile:
+            #         st.info("Nessun giocatore acquistabile in questa squadra.")
+            #     else:
+            #         g_scelto_nome = st.selectbox("Seleziona Giocatore", [g['nome'] for g in rosa_derubabile])
+            #         g_scelto = next(g for g in rosa_derubabile if g['nome'] == g_scelto_nome)
+                    
+            #         # Matematica della Clausola
+            #         vr_attuale = g_scelto['valore_residuo']
+
+            #         if is_gen_clausola and not g_scelto.get('acquistato_a_gennaio', False):
+            #             # A Gennaio, il VR scende di mezza quota di ammortamento (perché ha giocato 6 mesi)
+            #             quota_semestrale = g_scelto['ammortamento_annuo'] / 2
+            #             vr_di_calcolo = vr_attuale - quota_semestrale
+            #             st.info(f"❄️ Sessione Invernale: Il Valore Residuo è sceso da {vr_attuale:.2f} M a **{vr_di_calcolo:.2f} M**.")
+            #         else:
+            #             # In estate (o se appena comprato a gennaio) si usa il VR pieno
+            #             vr_di_calcolo = vr_attuale
+                        
+            #         costo_clausola = round(vr_di_calcolo * 2, 2)
+            #         plusvalenza_generata = round(costo_clausola - vr_di_calcolo, 2)
+                    
+            #         st.error(f"💰 **Costo totale della Clausola:** {costo_clausola} M")
+            #         st.success(f"La società {sq_derubata} incasserà i soldi e genererà una Plusvalenza a bilancio di **+{plusvalenza_generata} M**!")
+                    
+            #         # L'acquirente deve fargli un nuovo contratto!
+            #         nuovi_anni = st.slider("Anni di contratto da firmare", 1, 5, 3, key="clausola_anni")
+                    
+            #         anni_effettivi_nuovi = nuovi_anni - 0.5 if is_gen_clausola else nuovi_anni
+            #         if is_gen_clausola:
+            #             st.caption(f"*(A Gennaio la durata effettiva del nuovo contratto sarà di {anni_effettivi_nuovi} anni)*")
+                    
+            #         if st.button("🚨 Paga clausola rescissoria", type="primary"):
+            #             if db[sq_acquirente]['cassa'] < costo_clausola:
+            #                 st.error("Cassa insufficiente per pagare la clausola!")
+            #             else:
+            #                 # 1. Movimenti Cassa e Bilancio
+            #                 db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_clausola, 2)
+            #                 db[sq_derubata]['cassa'] = round(db[sq_derubata]['cassa'] + costo_clausola, 2)
+            #                 db[sq_derubata]['bilancio']['ricavi']['plusvalenze'] += plusvalenza_generata
                             
-            with t2:
+            #                 # Se rubato a Gennaio, la squadra derubata deve pagare lo stipendio e ammortamento dei primi 6 mesi
+            #                 if is_gen_clausola and not g_scelto.get('acquistato_a_gennaio', False):
+            #                     db[sq_derubata]['bilancio']['costi']['ammortamenti'] += (g_scelto['ammortamento_annuo'] / 2)
+            #                     db[sq_derubata]['bilancio']['costi']['monte_ingaggi'] += (g_scelto['stipendio'] / 2)
+                            
+            #                 # 2. Aggiorniamo i parametri del giocatore per il nuovo proprietario
+            #                 g_rubato = g_scelto.copy()
+            #                 g_rubato['costo_acquisto'] = costo_clausola
+            #                 g_rubato['valore_residuo'] = costo_clausola
+            #                 g_rubato['anni_contratto'] = anni_effettivi_nuovi
+            #                 g_rubato['anni_trascorsi'] = 0
+                            
+            #                 # Attenzione all'ammortamento del nuovo proprietario
+            #                 # Calcoliamo l'ammortamento annuo "a regime"
+            #                 amm_annuo_nuovo = costo_clausola / nuovi_anni 
+            #                 g_rubato['ammortamento_annuo'] = round(amm_annuo_nuovo, 2)
+                            
+            #                 # Calcolo nuovo stipendio in base allo scaglione (usando la tua funzione calcola_stipendio)
+            #                 g_rubato['stipendio'] = calcola_stipendio(costo_clausola) 
+            #                 g_rubato['acquistato_a_gennaio'] = is_gen_clausola
+                            
+            #                 # 3. Spostiamo il giocatore da una rosa all'altra
+            #                 db[sq_acquirente]['rosa'].append(g_rubato)
+            #                 db[sq_derubata]['rosa'] = [g for g in db[sq_derubata]['rosa'] if g['nome'] != g_scelto_nome]
+                            
+            #                 save_data(db, DB_PATH)
+            #                 log_evento(sq_acquirente, "🔥", f"ha pagato la clausola rescissoria di **{costo_clausola:.2f}M** per acquistare **{g_scelto_nome}** dal **{sq_derubata}** ({anni_effettivi_nuovi} anni di contratto).")
+            #                 st.rerun()
+            
+            with t3:
                 if rosa_ordinata:
                     with st.container(border=True):
                         sessione_ven = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_ven")
@@ -733,7 +955,7 @@ elif menu == "3. Mercato (Definitivi)":
                 else:
                     st.info("Nessun giocatore in rosa da vendere.")
                             
-            with t3:
+            with t4:
                 if rosa_ordinata:
                     with st.container(border=True):
                         sessione_svin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_svin")
@@ -779,7 +1001,7 @@ elif menu == "3. Mercato (Definitivi)":
                 else:
                     st.info("Nessun giocatore in rosa da svincolare.")
                             
-            with t4:
+            with t5:
                 if rosa_ordinata:
                     with st.container(border=True):
                         sessione_rin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_rin")
@@ -879,7 +1101,8 @@ elif menu == "4. Mercato (Prestiti)":
     if not st.session_state.is_admin:
         st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di mercato.")
     else:
-        if len(db) < 2: st.warning("Servono almeno 2 squadre per i prestiti.")
+        if len(db) < 2:
+            st.warning("Servono almeno 2 squadre per i prestiti.")
         else:
             c1, c2 = st.columns(2)
             sq_cedente = c1.selectbox("Società Cedente", list(db.keys()))
@@ -895,7 +1118,7 @@ elif menu == "4. Mercato (Prestiti)":
             else:
                 # MODIFICA 1: Usiamo i numeri interi come opzioni per non perdere la memoria al click!
                 indice_p = st.selectbox(
-                    "Seleziona Giocatore da Prestare", 
+                    "Seleziona Giocatore", 
                     options=range(len(rosa_ordinata)), 
                     format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
                     key="prestito_out_idx"
@@ -907,6 +1130,7 @@ elif menu == "4. Mercato (Prestiti)":
                 # MODIFICA 2: Troviamo il giocatore REALE dentro il database per modificarlo direttamente alla fonte
                 g_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_selezionato['nome'])
                 
+                st.divider()
                 st.markdown("### 📝 Dettagli Contratto di Prestito")
                 
                 # ---> AGGIUNTA SESSIONE
@@ -926,6 +1150,38 @@ elif menu == "4. Mercato (Prestiti)":
                 else:
                     st.info(f"☀️ **Prestito Estivo:** Durata {anni_effettivi_prestito} anni. La percentuale si applica all'intera stagione.")
                 
+                stip_totale = g_obj['stipendio']
+                amm_totale = g_obj['ammortamento_annuo']
+                
+                if is_gen_prestito:
+                    # A gennaio, metà stipendio è già in pancia al cedente. L'altra metà si divide in base allo slider.
+                    stip_acq = (stip_totale / 2) * (perc_stipendio / 100)
+                    stip_ced = (stip_totale / 2) + ((stip_totale / 2) * ((100 - perc_stipendio) / 100))
+                else:
+                    stip_acq = stip_totale * (perc_stipendio / 100)
+                    stip_ced = stip_totale * ((100 - perc_stipendio) / 100)
+                    
+                html_prospetto = f"""
+                <div style='background-color: white; border-radius: 8px; padding: 15px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);'>
+                    <div style='color: #64748B; font-size: 13px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase;'>📊 Impatto Finanziario Stagione Corrente</div>
+                    <div style='display: flex; justify-content: space-between;'>
+                        <div style='text-align: left;'>
+                            <div style='color: #94A3B8; font-size: 12px;'>Ammortamento ({sq_cedente})</div>
+                            <div style='color: #EF4444; font-weight: bold; font-size: 16px;'>{amm_totale:.2f} M</div>
+                        </div>
+                        <div style='text-align: center;'>
+                            <div style='color: #94A3B8; font-size: 12px;'>Stipendio a carico ({sq_cedente})</div>
+                            <div style='color: #10B981; font-weight: bold; font-size: 16px;'>{stip_ced:.2f} M</div>
+                        </div>
+                        <div style='text-align: right;'>
+                            <div style='color: #94A3B8; font-size: 12px;'>Stipendio a carico ({sq_acquirente})</div>
+                            <div style='color: #F59E0B; font-weight: bold; font-size: 16px;'>{stip_acq:.2f} M</div>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(html_prospetto, unsafe_allow_html=True)
+
                 col_on, col_tipo, col_cifra = st.columns(3)
                 costo_prestito = col_on.number_input("Costo Prestito (Oneroso in MLN)", min_value=0.0, step=0.5, value=0.0)
                 tipo_accordo = col_tipo.selectbox("Tipo di Accordo", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
@@ -934,36 +1190,39 @@ elif menu == "4. Mercato (Prestiti)":
                 if tipo_accordo != "Prestito Secco":
                     cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
                 
-                if st.button("Ufficializza Prestito"):
-                    anni_rimanenti = g_obj['anni_contratto'] - g_obj.get('anni_trascorsi', 0)
-                    
-                    if anni_effettivi_prestito >= anni_rimanenti:
-                        st.error(f"⚠️ Impossibile prestare. Il giocatore ha solo {anni_rimanenti} anno/i di contratto residui. Per questo prestito, servono almeno {anni_effettivi_prestito + 1} anni di contratto (rinnovalo prima di cederlo!).")
-                    elif costo_prestito > db[sq_acquirente]['cassa']:
-                        st.error("Cassa acquirente insufficiente per il prestito oneroso!")
-                    else:
-                        g_acq = g_obj.copy()
-                        g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
-                        g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_acq['anni_prestito_rimanenti'] = anni_effettivi_prestito
-                        g_acq['prestato_a_gennaio'] = is_gen_prestito # <--- NUOVO FLAG
-                        db[sq_acquirente]['rosa'].append(g_acq)
-                        
-                        g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
-                        g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                        g_obj['anni_prestito_rimanenti'] = anni_effettivi_prestito
-                        g_obj['prestato_a_gennaio'] = is_gen_prestito # <--- NUOVO FLAG
-                        
-                        if costo_prestito > 0:
-                            db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
-                            db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
-                            db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
-                            db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                st.markdown("<br>", unsafe_allow_html=True)
+                anni_rimanenti = g_obj['anni_contratto'] - g_obj.get('anni_trascorsi', 0)
+
+                if anni_rimanenti < (durata_prestito + 1):
+                    st.error(f"⚠️ **Operazione Bloccata.** Il giocatore ha solo {anni_rimanenti} anno/i di contratto residuo. Per un prestito di {durata_prestito} anno/i, servono almeno {durata_prestito + 1} anni di contratto. **Rinnovalo prima di cederlo!**")
+                else:
+                    # Mostra il bottone SOLO se la regola è rispettata
+                    if st.button("Ufficializza Prestito", type="primary"):
+                        if costo_prestito > db[sq_acquirente]['cassa']:
+                            st.error("Cassa acquirente insufficiente per il prestito oneroso!")
+                        else:
+                            g_acq = g_obj.copy()
+                            g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
+                            g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                            g_acq['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                            g_acq['prestato_a_gennaio'] = is_gen_prestito
+                            db[sq_acquirente]['rosa'].append(g_acq)
                             
-                        save_data(db, DB_PATH)
-                        log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
-                        st.toast(f"Prestito registrato!", icon="🧳")
-                        st.rerun()
+                            g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
+                            g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                            g_obj['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                            g_obj['prestato_a_gennaio'] = is_gen_prestito
+                            
+                            if costo_prestito > 0:
+                                db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
+                                db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
+                                db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
+                                db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                                
+                            save_data(db, DB_PATH)
+                            log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
+                            st.toast(f"Prestito registrato!", icon="🧳")
+                            st.rerun()
                         
             st.divider()
             st.subheader("🛒 Esercita Riscatto")
@@ -987,22 +1246,22 @@ elif menu == "4. Mercato (Prestiti)":
                         
                     anni_nuovi = st.slider("Nuovi anni di contratto", 1, 5, 3)
                     
-                    if st.button("Prenota Riscatto (Effettivo al 1° Luglio)"):
+                    if st.button("Prenota Riscatto (Effettivo al 1° Luglio)", type="primary"):
                         g_r_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
                         g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_riscatto)
                         g_ced_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
                         save_data(db, DB_PATH)
-                        log_evento(sq_cedente, "💰", f"ha ufficializzato la cessione per riscatto di **{g_riscatto}** al **{sq_acquirente}** per **{prezzo_r} M**.")
+                        log_evento(sq_cedente, "💰", f"ha ufficializzato il riscatto di **{g_riscatto}** al **{sq_acquirente}** per **{prezzo_r} M**.")
                         st.toast(f"Riscatto di {g_riscatto} prenotato per fine anno!", icon="⏳")
                         st.rerun()
 
             st.divider()
             st.subheader("❌ Risoluzione Anticipata Prestito")
             if in_prestito:
-                g_risoluzione = st.selectbox("Calciatore da far rientrare alla base", [g['nome'] for g in in_prestito], key="risoluzione")
+                g_risoluzione = st.selectbox("Calciatore selezionato", [g['nome'] for g in in_prestito], key="risoluzione")
                 st.info("Interrompendo il prestito, il giocatore tornerà immediatamente attivo nella rosa della società proprietaria e l'eventuale accordo di riscatto verrà annullato.")
                 
-                if st.button("Interrompi Prestito Subito"):
+                if st.button("Interrompi Prestito Subito", type="primary"):
                     # 1. Rimuoviamo il giocatore dalla rosa di chi l'aveva ricevuto
                     g_acq_obj = next(g for g in db[sq_acquirente]['rosa'] if g['nome'] == g_risoluzione)
                     db[sq_acquirente]['rosa'].remove(g_acq_obj)
@@ -1070,15 +1329,52 @@ elif menu == "5. Calendario & Partite":
                     st.rerun()
             
             if calendario:
+
+                #####################################################################################
+                # BLOCCO PER TEST
+                #####################################################################################
+                if st.session_state.is_admin:
+                    if st.button("🎲 Simula tutto il Campionato in un colpo solo", type="primary"):
+                        import random
+                        for giornata_idx, giornata_dati in enumerate(calendario):
+                            for match in giornata_dati:
+                                if not match.get("giocata", False):
+                                    # Genera gol realistici (con un leggero vantaggio per chi gioca in casa)
+                                    gh = random.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 8, 2])[0]
+                                    ga = random.choices([0, 1, 2, 3, 4, 5], weights=[30, 35, 20, 10, 4, 1])[0]
+                                    
+                                    match["gol_home"] = gh
+                                    match["gol_away"] = ga
+                                    match["giocata"] = True
+                                    
+                                    # # ASSEGNAZIONE INCASSI AUTOMATICA
+                                    # if not match.get("incassi_assegnati", False):
+                                    #     h_team = db[match["home"]]
+                                    #     if h_team['stadio']['livello']:
+                                    #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
+                                    #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
+                                    #         h_team['cassa'] = round(h_team['cassa'] + incasso, 2)
+                                    #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
+                                    #     match["incassi_assegnati"] = True
+                        
+                        save_data(db, DB_PATH)
+                        save_data(calendario, CAL_PATH)
+                        verifica_obiettivi_dinamici()
+                        log_evento("Lega", "🎲", "L'Amministratore ha simulato l'intero Campionato!")
+                        st.success("Simulazione completata! Tutti i risultati sono stati generati e gli incassi versati.")
+                        st.rerun()
+                        
+                #####################################################################################
+                # FINE BLOCCO PER TEST
+                #####################################################################################
+                
                 st.info("👇 Scorri per vedere tutte le giornate.")
                 
-                # ELIMINATO il menu a tendina! Ora facciamo un ciclo per mostrare TUTTE le giornate
                 for giornata_idx, giornata_dati in enumerate(calendario):
                     
                     st.subheader(f"Partite Giornata {giornata_idx + 1}")
                     
                     # Controlliamo se la giornata è già stata giocata e salvata
-                    # (Ci basta guardare la prima partita, perché le salviamo tutte insieme)
                     giornata_chiusa = False
                     if giornata_dati and giornata_dati[0].get("giocata", False):
                         giornata_chiusa = True
@@ -1106,7 +1402,7 @@ elif menu == "5. Calendario & Partite":
                                 st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) # spaziatura tra le partite
                                 
                             # IL MESSAGGIO CHE SOSTITUISCE IL BOTTONE
-                            st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali e gli incassi stadio sono stati registrati a bilancio.")
+                            st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali.")
                     
                     else:
                         # ==========================================
@@ -1123,7 +1419,7 @@ elif menu == "5. Calendario & Partite":
                                 c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
 
                             if st.session_state.is_admin:
-                                if st.form_submit_button(f"Salva Risultati & Assegna Incassi (G. {giornata_idx + 1})", type="primary"):
+                                if st.form_submit_button(f"Salva Risultati (G. {giornata_idx + 1})", type="primary"):
                                     gol_map = {}
                                     for idx, match in enumerate(giornata_dati):
                                         gh = st.session_state[f"g{giornata_idx}_h_{idx}"]
@@ -1136,22 +1432,23 @@ elif menu == "5. Calendario & Partite":
                                         gol_map[match["home"]] = gh
                                         gol_map[match["away"]] = ga
                                         
-                                        if not match["incassi_assegnati"]:
-                                            h_team = db[match["home"]]
-                                            if h_team['stadio']['livello']:
-                                                incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
-                                                h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
-                                                h_team['cassa'] += incasso 
-                                                h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
-                                            match["incassi_assegnati"] = True
+                                        # if not match["incassi_assegnati"]:
+                                        #     h_team = db[match["home"]]
+                                        #     if h_team['stadio']['livello']:
+                                        #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
+                                        #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
+                                        #         h_team['cassa'] += incasso 
+                                        #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
+                                        #     match["incassi_assegnati"] = True
                                     
                                     save_data(db, DB_PATH)
                                     save_data(calendario, CAL_PATH)
+
+                                    verifica_obiettivi_dinamici()
                                     
-                                    log_evento("Lega", "📅", f"Risultati e incassi della **Giornata {giornata_idx + 1}** ufficializzati.")
+                                    log_evento("Lega", "📅", f"Risultati della **Giornata {giornata_idx + 1}** ufficializzati.")
                                     st.rerun() 
                     
-                    # Divisore tra le giornate
                     st.divider()
 
 # ==========================================
@@ -1250,44 +1547,84 @@ elif menu == "6. Classifica Campionato":
         st.markdown(html_classifica, unsafe_allow_html=True)
 
         st.divider()
+
+        squadre_ordinate = df_c.index.tolist()
+        premi_gia_dati = db[squadre_ordinate[0]].get("premi_campionato_dati", False)
         if not st.session_state.is_admin:
             st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può distribuire i premi e i ricavi da sponsor.")
         else:
-            if st.button("🏆 Distribuisci Premi Campionato e Sponsor", type="primary"):
-                squadre_ordinate = df_c.index.tolist()
-                premi_sponsor = [70.0, 65.0, 60.0, 55.0, 50.0, 45.0, 42.0, 40.0]
-                premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
-                
-                # --- CONTEGGIO PARTITE IN CASA ---
-                partite_in_casa = {s: 0 for s in db.keys()}
-                for md in calendario:
-                    for m in md:
-                        partite_in_casa[m["home"]] += 1
-                max_casa = max(partite_in_casa.values())
-                
-                for pos, nome_sq in enumerate(squadre_ordinate):
-                    team = db[nome_sq]
-                    p_spons = premi_sponsor[pos]
-                    p_camp = premi_campionato[pos]
+            if premi_gia_dati:
+                st.info("✅ **Premi di fine campionato e Sponsor già erogati per questa stagione.**")
+            else: 
+                if st.button("🏆 Distribuisci Premi Campionato e Sponsor", type="primary"):
+                    st.subheader("💰 Resoconto Assegnazione Premi") # <-- TITOLO AGGIUNTO
                     
-                    # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
-                    team['cassa'] = round(team['cassa'] + p_camp, 2)
-                    team['bilancio']['ricavi']['premi_sportivi'] += p_camp
-                    team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                    squadre_ordinate = df_c.index.tolist()
+                    premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
                     
-                    # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
-                    diff_casa = max_casa - partite_in_casa[nome_sq]
-                    if diff_casa > 0 and team['stadio']['livello']:
-                        conguaglio = diff_casa * team['stadio']['base']
-                        team['cassa'] = round(team['cassa'] + conguaglio, 2)
-                        team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
-                        team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
+                    # --- CONTEGGIO PARTITE IN CASA ---
+                    # partite_in_casa = {s: 0 for s in db.keys()}
+                    # for md in calendario:
+                    #     for m in md:
+                    #         partite_in_casa[m["home"]] += 1
+                    # max_casa = max(partite_in_casa.values())
                     
-                    # 3. PREMIO SPONSOR: Viene solo "prenotato" per la prossima stagione
-                    team['sponsor_prenotato'] = p_spons
-                    
-                save_data(db, DB_PATH)
-                st.success("Premi Campionato erogati! Calcolati i conguagli per gli Stadi e prenotati gli Sponsor per il prossimo anno.")
+                    for pos, nome_sq in enumerate(squadre_ordinate):
+                        team = db[nome_sq]
+                        p_camp = premi_campionato[pos]
+                        team["premi_campionato_dati"] = True
+                        
+                        # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
+                        team['cassa'] = round(team['cassa'] + p_camp, 2)
+                        team['bilancio']['ricavi']['premi_sportivi'] += p_camp
+                        team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                        
+                        # ---> AGGIUNTA 1: Mostra a schermo e logga il Premio <---
+                        st.success(f"🏅 **{pos+1}° Posto - {nome_sq}**: incassa **{p_camp} M** di premio.")
+                        log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
+                        
+                        # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
+                        # diff_casa = max_casa - partite_in_casa[nome_sq]
+                        # if diff_casa > 0 and team['stadio']['livello']:
+                        #     conguaglio = diff_casa * team['stadio']['base']
+                        #     team['cassa'] = round(team['cassa'] + conguaglio, 2)
+                        #     team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
+                        #     team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
+                            
+                        #     # ---> AGGIUNTA 2: Mostra a schermo e logga il Conguaglio <---
+                        #     st.info(f"⚖️ **{nome_sq}** riceve **{conguaglio} M** di conguaglio stadio ({diff_casa} partita/e in meno in casa).")
+                        #     log_evento(nome_sq, "⚖️", f"ha ricevuto un conguaglio di **{conguaglio} M** per compensare le minori partite giocate in casa.")
+                        
+                        # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
+                        obiettivi = team.get("sponsor", {}).get("obiettivi", {})
+                        pagati = team.get("sponsor", {}).setdefault("obiettivi_pagati", [])
+
+                        if obiettivi:
+                            ob_br = obiettivi.get("bronzo", "")
+                            if "8° posto" in ob_br and pos < 7 and ob_br not in pagati:
+                                team['cassa'] = round(team['cassa'] + 8.0, 2)
+                                team['bilancio']['ricavi']['sponsor'] += 8.0
+                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_br}): +8.0M")
+                                pagati.append(ob_br)
+                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_br}** incassando **8.0 M**!")
+
+                            ob_ar = obiettivi.get("argento", "")
+                            if "prime 4" in ob_ar and pos < 4 and ob_ar not in pagati:
+                                team['cassa'] = round(team['cassa'] + 15.0, 2)
+                                team['bilancio']['ricavi']['sponsor'] += 15.0
+                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_ar}): +15.0M")
+                                pagati.append(ob_ar)
+                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_ar}** incassando **15.0 M**!")
+
+                            ob_or = obiettivi.get("oro", "")
+                            if "Vinci il Campionato" in ob_or and pos == 0 and ob_or not in pagati:
+                                team['cassa'] = round(team['cassa'] + 30.0, 2)
+                                team['bilancio']['ricavi']['sponsor'] += 30.0
+                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_or}): +30.0M")
+                                pagati.append(ob_or)
+                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_or}** incassando **30.0 M**!")
+
+                    save_data(db, DB_PATH)
 
 # ==========================================
 # 7. COPPE UFFICIALI
@@ -1321,7 +1658,7 @@ elif menu == "7. Coppe (Italia & CL)":
                 st.rerun()
         
         if coppe["ci"]["quarti"]:
-            st.write("🔴 **Quarti di Finale**")
+            st.write("🔴 **Quarti di Finale (G. 10)**")
             
             # Leggiamo dal database se questa fase è già stata chiusa
             quarti_salvati = coppe["ci"].get("quarti_salvati", False)
@@ -1372,6 +1709,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         else:
                             coppe["ci"]["quarti_salvati"] = True
                             save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
                             st.rerun()
                 else:
                     st.info("🔒 **Quarti di Finale archiviati.**")
@@ -1382,7 +1720,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         st.rerun()
 
         if coppe["ci"]["semis"]:
-            st.write("🟡 **Semifinali**")
+            st.write("🟡 **Semifinali (G. 20)**")
             semis_salvate = coppe["ci"].get("semis_salvate", False)
             
             with st.container(border=True):
@@ -1425,6 +1763,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         else:
                             coppe["ci"]["semis_salvate"] = True
                             save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
                             st.rerun()
                 else:
                     st.info("🔒 **Semifinali archiviate.**")
@@ -1437,7 +1776,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         st.rerun()
                 
         if coppe["ci"]["finale"]:
-            st.write("🟢 **Finale**")
+            st.write("🟢 **Finale (G. 28)**")
             finale_salvata = coppe["ci"].get("finale_salvata", False)
             
             with st.container(border=True):
@@ -1477,22 +1816,48 @@ elif menu == "7. Coppe (Italia & CL)":
                         else:
                             coppe["ci"]["finale_salvata"] = True
                             save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
                             st.rerun()
                 else:
                     st.info("🔒 **Finale archiviata.**")
                     if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
+                        st.subheader("💰 Resoconto Premi Coppa Italia")
+                        
                         vincente = m.get('vincente')
                         perdente = m['home'] if vincente == m['away'] else m['away']
-                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
-                        db[vincente]['cassa'] += 35.0
-                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 20.0
-                        db[perdente]['cassa'] += 20.0
-                        for sq in coppe["ci"]["perse_semis"]: 
-                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += 10.0
-                            db[sq]['cassa'] += 10.0
+                        
+                        # --- 1. VINCITORE (35 M) ---
+                        premio_v = 35.0
+                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                        db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                        db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Coppa Italia: +{premio_v}M")
+                        
+                        st.success(f"🥇 **Vincitore - {vincente}**: incassa **{premio_v} M**!")
+                        log_evento(vincente, "🇮🇹", f"ha vinto la Coppa Italia e incassa **{premio_v} M**!")
+
+                        # --- 2. FINALISTA (20 M) ---
+                        premio_f = 20.0
+                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                        db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                        db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Coppa Italia: +{premio_f}M")
+                        
+                        st.info(f"🥈 **Finalista - {perdente}**: incassa **{premio_f} M**.")
+                        log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Coppa Italia.")
+
+                        # --- 3. SEMIFINALISTI (10 M) ---
+                        premio_s = 10.0
+                        for sq in coppe["ci"].get("perse_semis", []): 
+                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                            db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                            db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Coppa Italia: +{premio_s}M")
+                            
+                            st.warning(f"🥉 **Semifinalista - {sq}**: incassa **{premio_s} M**.")
+                            log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Coppa Italia.")
+                            
+                        # Chiusura e salvataggio
                         coppe["ci"]["premi_dati"] = True
-                        save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                        st.success("Premi Coppa Italia distribuiti!")
+                        save_data(db, DB_PATH)
+                        save_data(coppe, COPPE_PATH)
     
     # ---------------- CHAMPIONS LEAGUE ----------------
     with t_cl:
@@ -1606,7 +1971,8 @@ elif menu == "7. Coppe (Italia & CL)":
                 
                 with st.expander("Calendario Girone A" if gironi_salvati else "Calendario Girone A"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
-                        st.markdown(f"**Giornata {g_idx + 1}**")
+                        gior = 2
+                        st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
                         for m_idx, m in enumerate(md):
                             c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
                             c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
@@ -1639,7 +2005,8 @@ elif menu == "7. Coppe (Italia & CL)":
                 
                 with st.expander("Calendario Girone B" if gironi_salvati else "Calendario Girone B"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
-                        st.markdown(f"**Giornata {g_idx + 1}**")
+                        gior = 2
+                        st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
                         for m_idx, m in enumerate(md):
                             c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
                             c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
@@ -1668,6 +2035,7 @@ elif menu == "7. Coppe (Italia & CL)":
                     # Bottone 1: Salva i progressi giornata per giornata
                     if btn_salva.button("💾 Salva Risultati Parziali", type="secondary", use_container_width=True, key="btn_salva_cl"):
                         save_data(coppe, COPPE_PATH)
+                        verifica_obiettivi_dinamici()
                         st.success("Risultati parziali salvati!.")
                         st.rerun()
                         
@@ -1675,6 +2043,7 @@ elif menu == "7. Coppe (Italia & CL)":
                     if btn_archivia.button("🔒 Archivia Gironi Champions League", type="primary", use_container_width=True, key="btn_archivia_cl"):
                         coppe["cl"]["gironi_salvati"] = True
                         save_data(coppe, COPPE_PATH)
+                        verifica_obiettivi_dinamici()
                         st.rerun()
                 else:
                     st.info("🔒 **Gironi archiviati e classifiche definitive.**")
@@ -1701,7 +2070,7 @@ elif menu == "7. Coppe (Italia & CL)":
                     if semis_salvate:
                         # ANDATA BLOCCATA
                         c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata: <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata (G. 22): <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
                         c2.markdown(f"<div style='{stile_box}'>{ma['gol_home']}</div>", unsafe_allow_html=True)
                         c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
                         c4.markdown(f"<div style='{stile_box}'>{ma['gol_away']}</div>", unsafe_allow_html=True)
@@ -1709,7 +2078,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         
                         # RITORNO BLOCCATO
                         c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno: <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno (G. 25): <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
                         c2.markdown(f"<div style='{stile_box}'>{mr['gol_home']}</div>", unsafe_allow_html=True)
                         c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
                         c4.markdown(f"<div style='{stile_box}'>{mr['gol_away']}</div>", unsafe_allow_html=True)
@@ -1720,7 +2089,7 @@ elif menu == "7. Coppe (Italia & CL)":
                     else:
                         # ANDATA EDITABILE
                         c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata: <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata (G. 22): <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
                         ma['gol_home'] = c2.number_input("H", value=ma.get('gol_home',0), key=f"cl_s_ah_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
                         c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
                         ma['gol_away'] = c4.number_input("A", value=ma.get('gol_away',0), key=f"cl_s_aa_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
@@ -1728,7 +2097,7 @@ elif menu == "7. Coppe (Italia & CL)":
 
                         # RITORNO EDITABILE
                         c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno: <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
+                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno (G. 25): <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
                         mr['gol_home'] = c2.number_input("H", value=mr.get('gol_home',0), key=f"cl_s_rh_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
                         c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
                         mr['gol_away'] = c4.number_input("A", value=mr.get('gol_away',0), key=f"cl_s_ra_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
@@ -1754,6 +2123,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         else:
                             coppe["cl"]["semis_salvate"] = True
                             save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
                             st.rerun()
                 else:
                     st.info("🔒 **Semifinali archiviate.**")
@@ -1773,7 +2143,7 @@ elif menu == "7. Coppe (Italia & CL)":
                         st.rerun()
                 
         if coppe["cl"]["finale"]:
-            st.write("🟢 **Finale**")
+            st.write("🟢 **Finale (G. 32)**")
             finale_salvata = coppe["cl"].get("finale_salvata", False)
             
             with st.container(border=True):
@@ -1811,22 +2181,48 @@ elif menu == "7. Coppe (Italia & CL)":
                         else:
                             coppe["cl"]["finale_salvata"] = True
                             save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
                             st.rerun()
                 else:
                     st.info("🔒 **Finale archiviata.**")
                     if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions League", type="primary"):
+                        st.subheader("💰 Resoconto Premi Champions League")
+                        
                         vincente = m.get('vincente')
                         perdente = m['home'] if vincente == m['away'] else m['away']
-                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += 50.0
-                        db[vincente]['cassa'] += 50.0
-                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += 35.0
-                        db[perdente]['cassa'] += 35.0
-                        for sq in coppe["cl"]["perse_semis"]: 
-                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += 20.0
-                            db[sq]['cassa'] += 20.0
+                        
+                        # --- 1. VINCITORE (50 M) ---
+                        premio_v = 50.0
+                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                        db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                        db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Champions League: +{premio_v}M")
+                        
+                        st.success(f"🏆 **Campione d'Europa - {vincente}**: incassa **{premio_v} M**!")
+                        log_evento(vincente, "🇪🇺", f"ha vinto la Champions League e incassa **{premio_v} M**!")
+
+                        # --- 2. FINALISTA (35 M) ---
+                        premio_f = 35.0
+                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                        db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                        db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Champions League: +{premio_f}M")
+                        
+                        st.info(f"🥈 **Finalista - {perdente}**: incassa **{premio_f} M**.")
+                        log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Champions League.")
+
+                        # --- 3. SEMIFINALISTI (20 M) ---
+                        premio_s = 20.0
+                        for sq in coppe["cl"].get("perse_semis", []): 
+                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                            db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                            db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Champions League: +{premio_s}M")
+                            
+                            st.warning(f"🥉 **Semifinalista - {sq}**: incassa **{premio_s} M**.")
+                            log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Champions League.")
+                            
+                        # Chiusura e salvataggio
                         coppe["cl"]["premi_dati"] = True
-                        save_data(db, DB_PATH); save_data(coppe, COPPE_PATH)
-                        st.success("Premi Champions League distribuiti!")
+                        save_data(db, DB_PATH)
+                        save_data(coppe, COPPE_PATH)
 
 # ==========================================
 # 8. CHIUSURA FISCALE
@@ -1846,7 +2242,8 @@ elif menu == "8. Chiusura Fiscale Bilancio":
             st.write("I contratti in scadenza verranno annullati, i prestiti riscattati e l'eventuale multa del Fair Play applicata alla Cassa. **L'operazione NON può essere annullata.**")
             
             if st.button("Sì, sono sicuro. Esegui Chiusura", type="primary", use_container_width=True):
-                # --- INIZIO DELLA TUA LOGICA ORIGINALE ---
+
+                # --- 1. CICLO DI CHIUSURA SQUADRE ---
                 for sq, dati in db.items():
                     b = dati['bilancio']
                     tot_ammortamenti, tot_ingaggi = 0.0, 0.0
@@ -1884,18 +2281,14 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     }
                     
                     dati['bilancio'] = init_bilancio()
-                    dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
+                    # dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
                     
                     dati['cassa'] += 70.0
                     dati['bilancio']['ricavi']['nuovo_capitale'] = 70.0
                     dati['bilancio']['storico_movimenti'].append("Iniezione Nuovo Capitale: +70.0M (Cassa e Ricavi)")
                     
-                    sponsor_nuovo = dati.get('sponsor_prenotato', 0.0)
-                    if sponsor_nuovo > 0:
-                        dati['cassa'] += sponsor_nuovo
-                        dati['bilancio']['ricavi']['sponsor'] = sponsor_nuovo
-                        dati['bilancio']['storico_movimenti'].append(f"Accordo Sponsor Annuale: +{sponsor_nuovo}M")
-                        del dati['sponsor_prenotato']
+                    # Azzeriamo lo sponsor per la nuova stagione (svuotando anche i pagati)
+                    dati['sponsor'] = {"nome": None, "valore_base": 0, "obiettivi": {}, "obiettivi_pagati": []}
                     
                     nuova_rosa = []
                     for g in dati['rosa']:
@@ -1975,7 +2368,8 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                             
                             if g['anni_trascorsi'] < g['anni_contratto']:
                                 nuova_rosa.append(g)
-                    dati['rosa'] = nuova_rosa 
+                    dati['rosa'] = nuova_rosa
+                    dati["premi_campionato_dati"] = False
                     
                 save_data(db, DB_PATH)
                 save_data([], CAL_PATH)
@@ -2085,340 +2479,3 @@ elif menu == "9. Cronologia Ufficialità":
             
             html_feed += "</div>"
             st.markdown(html_feed, unsafe_allow_html=True)
-
-# ==========================================
-# 10. REGOLAMENTO UFFICIALE
-# ==========================================
-elif menu == "10. Regolamento Ufficiale":
-    st.title("⚽ Osei Football League")
-    st.header("Regolamento Ufficiale Manageriale")
-    st.caption("A cura della Direzione Osei")
-    st.divider()
-
-    # SECTION 1
-    st.subheader("1. Disposizioni Generali")
-    st.markdown("""
-    Il presente regolamento disciplina l'organizzazione e la gestione sportivo-finanziaria delle società appartenenti alla Osei Football League. Il sistema manageriale impone il rigoroso rispetto dei vincoli economici, strutturati sulla netta separazione tra due principi contabili fondamentali:
-
-    * **La Liquidità (Cassa):** Rappresenta il capitale circolante a disposizione della società per effettuare transazioni immediate. Le variazioni di liquidità si registrano contestualmente al momento dell'esborso o dell'incasso reale. I fondi in cassa non si azzerano mai a fine anno.
-    * **Il Bilancio d'Esercizio:** Rappresenta il documento contabile di fine stagione che riepiloga i Costi e i Ricavi imputabili al singolo anno sportivo, al fine di determinare il risultato d'esercizio (Utile o Perdita) e valutare il rispetto del Fair Play Finanziario. Il Bilancio viene azzerato al termine di ogni stagione sportiva.
-    
-    ### 1.1 Capitale Iniziale
-    All'atto della costituzione delle società sportive, la Direzione provvede all'assegnazione di un fondo iniziale pari a **500 milioni di fantaeuro** per ciascuna società. Tale somma costituisce la Liquidità (Cassa) di partenza per le operazioni di mercato della prima finestra estiva. 
-    """)
-    st.info("**Nota:** Al fine di non alterare i parametri del Fair Play Finanziario, tale somma iniziale transita **esclusivamente nella Cassa reale** e non concorre in alcun modo a formare il Valore della Produzione (Ricavi) del primo Bilancio d'Esercizio.")
-
-    st.divider()
-    
-    # SECTION 2
-    st.subheader("2. Stadio e Sponsor")
-    st.markdown("""
-    All'apertura di ogni stagione, le società devono strutturare le proprie fondamenta commerciali scegliendo l'impianto sportivo e registrando il Main Sponsor.
-    
-    ### 2.1 Impianti Sportivi
-    Ciascuna società ha l'obbligo di selezionare la capienza del proprio impianto sportivo. Da tale scelta derivano specifici oneri fissi di gestione (da imputare in Cassa e nei Costi di Bilancio) e proventi legati ai risultati delle partite disputate in casa (da imputare in Cassa e nei Ricavi di Bilancio):
-    * **Impianto di 1ª Categoria (20.000 posti):**
-      * Costo fisso annuo: **7 milioni**
-      * Incasso base per partita: **0.2 milioni**
-      * Incasso totale in caso di pareggio: **0.3 milioni**
-      * Incasso totale in caso di vittoria: **0.6 milioni**
-    * **Impianto di 2ª Categoria (50.000 posti):**
-      * Costo fisso annuo: **17 milioni**
-      * Incasso base per partita: **0.4 milioni**
-      * Incasso totale in caso di pareggio: **0.7 milioni**
-      * Incasso totale in caso di vittoria: **1.3 milioni**
-    * **Impianto di 3ª Categoria (80.000 posti):**
-      * Costo fisso annuo: **28 milioni**
-      * Incasso base per partita: **0.8 milioni**
-      * Incasso totale in caso di pareggio: **1.4 milioni**
-      * Incasso totale in caso di vittoria: **2.1 milioni**
-
-    💡 **Nota bene:** Il costo fisso annuo dell'impianto sportivo viene prelevato **immediatamente** dalla Liquidità (Cassa) all'atto della firma del contratto, prima ancora di iniziare il calciomercato.
-    
-    ### 2.2 Sponsorizzazioni
-    Ciascuna società ha diritto alla sottoscrizione di un accordo di Main Sponsorship. Per la prima stagione di fondazione della Lega, al fine di garantire l'operatività e la sostenibilità iniziale, tutte le società percepiscono una quota fissa d'ingresso pari a **40 milioni**. 
-
-    A partire dalla seconda stagione, l'importo erogato dallo sponsor all'inizio di ogni anno sportivo è calcolato esclusivamente in base al piazzamento ottenuto nella classifica generale della stagione antecedente:
-    * **1ª Classificata:** 70 milioni
-    * **2ª Classificata:** 65 milioni
-    * **3ª Classificata:** 60 milioni
-    * **4ª Classificata:** 55 milioni
-    * **5ª Classificata:** 50 milioni
-    * **6ª Classificata:** 45 milioni
-    * **7ª Classificata:** 42 milioni
-    * **8ª Classificata:** 40 milioni
-
-    Tali somme di denaro generano un flusso positivo di Cassa e vanno registrate nei Ricavi di Bilancio.
-    """)
-
-    st.divider()
-
-    # SECTION 3
-    st.subheader("3. Composizione della Rosa e Contratti")
-    st.markdown("""
-    ### 3.1 Limiti e Composizione della Rosa
-    Le società hanno la facoltà di tesserare un numero illimitato di calciatori (tra acquisti a titolo definitivo e trasferimenti temporanei), purché nel rigoroso rispetto dei vincoli economici e del Fair Play Finanziario imposti a Bilancio. 
-
-    Tuttavia, per partecipare alle competizioni ufficiali (Campionato e Coppe), ogni allenatore ha l'obbligo di comunicare alla Direzione una lista inderogabile di **25 calciatori convocabili** per l'intera durata della stagione. 
-    La ripartizione per ruoli all'interno dei 25 scelti è vincolante ed è fissata a: **3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti**. I calciatori di proprietà non inseriti in questa speciale lista dei 25 restano a tutti gli effetti a libro paga della società (generando regolarmente oneri di stipendio e ammortamento), ma non potranno prendere parte ad alcuna gara ufficiale.
-
-    ### 3.2 Vincoli Contrattuali e Stipendi
-    L'acquisizione di un calciatore comporta la contestuale stipula di un contratto di prestazione sportiva di durata compresa tra 1 e 5 anni. Tutti i contratti iniziano l'1 Gennaio oppure l'1 Luglio di ogni anno e terminano tutti il 30 Giugno. Il compenso annuale (Stipendio) costituisce un costo d'esercizio ricorrente, ed è parametrato al costo storico del cartellino:
-    * Costo d'acquisto da 1 a 15 milioni: Stipendio annuale di **1.0 milioni**
-    * Costo d'acquisto da 16 a 45 milioni: Stipendio annuale di **2.5 milioni**
-    * Costo d'acquisto da 46 a 85 milioni: Stipendio annuale di **4.5 milioni**
-    * Costo d'acquisto da 86 a 130 milioni: Stipendio annuale di **7.0 milioni**
-    * Costo d'acquisto da 131 milioni in su: Stipendio annuale di **11.0 milioni**
-    
-    Eventuali rinnovi contrattuali comportano un adeguamento salariale obbligatorio pari al +15% dello stipendio in essere. **La durata massima consentita per un rinnovo è di 5 anni.** Una volta scaduto il contratto di un giocatore non è più possibile firmare il rinnovo.
-    """)
-
-    st.divider()
-
-    # SECTION 4
-    st.subheader("4. Operazioni di Mercato")
-    
-    st.markdown("""
-    ### 4.1 Acquisizione a Titolo Definitivo di un Calciatore
-    L'acquisizione dei diritti alle prestazioni sportive di un calciatore genera i seguenti effetti:
-    1. **Sotto il profilo della Liquidità (Cassa):** Il corrispettivo costo d'acquisto viene detratto integralmente e istantaneamente dal saldo della cassa disponibile.
-    2. **Sotto il profilo Economico (Bilancio):** Il costo storico non incide interamente sull'esercizio in corso. Ai costi d'esercizio vengono imputati esclusivamente lo Stipendio annuale e la **Quota di Ammortamento** (pari al costo storico diviso per gli anni di contratto stipulati).
-    """)
-    
-    # ESEMPIO 1 HTML
-    st.markdown("""
-    <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
-        <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
-            Esempio Pratico: Acquisizione
-        </div>
-        <div style="padding: 12px; color: #1F2937;">
-            La società si aggiudica il <em>Calciatore X</em> per <strong>40 milioni</strong>, siglando un contratto quadriennale (4 anni).
-            <ul style="margin-bottom: 0; padding-top: 8px;">
-                <li><strong>Impatto sulla Cassa:</strong> Decremento immediato di 40 milioni.</li>
-                <li><strong>Impatto a Bilancio (per ogni anno):</strong> Iscrizione nei Costi di <strong>10 milioni</strong> di ammortamento (40 / 4) e di <strong>3.0 milioni</strong> di stipendio.</li>
-            </ul>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    ### 4.2 Acquisti in Sessione Invernale (Gennaio)
-    Le operazioni di mercato concluse durante la sessione di Gennaio sono soggette a un trattamento contabile specifico, volto a riflettere l'utilizzo del calciatore per il solo girone di ritorno (6 mesi).
-    
-    1. **Durata Contrattuale:** Al fine di garantire la naturale scadenza dei contratti al 30 giugno, la durata sottoscritta in fase di acquisto viene decurtata di 0.5 stagioni. (Esempio: un contratto stipulato per 2 anni durante la sessione invernale ha una durata effettiva di 1.5 stagioni).
-    2. **Impatto a Bilancio:** Per la stagione in corso (sessione invernale), l'ammortamento del cartellino e lo stipendio lordo vengono calcolati al 50% del valore annuale, riflettendo la maturazione economica dei costi per il solo semestre di competenza.    
-    3. **Valore Residuo e Invecchiamento:** Il Valore Residuo a bilancio viene aggiornato sottraendo esclusivamente la quota di ammortamento maturata nel semestre di permanenza. Inoltre, alla prima Chiusura Fiscale estiva successiva all'acquisto, l'età contrattuale del calciatore (anni trascorsi) avanzerà matematicamente di sole 0.5 stagioni, allineandosi perfettamente alla nuova annata sportiva.
-    """)
-    
-    # ESEMPIO 2 HTML
-    st.markdown("""
-    <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
-        <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
-            Esempio Pratico: Acquisto in sessione invernale
-        </div>
-        <div style="padding: 12px; color: #1F2937;">
-            La società si aggiudica il <em>Calciatore X</em> per <strong>25 milioni</strong>, siglando un contratto triennale (2.5 anni nella realtà).
-            <ul style="margin-bottom: 0; padding-top: 8px;">
-                <li><strong>Impatto sulla Cassa:</strong> Decremento immediato di 25 milioni.</li>
-                <li><strong>Impatto a Bilancio (primo anno):</strong> Iscrizione nei Costi di <strong>5 milioni</strong> di ammortamento (25 / 5) e di <strong>1.25 milioni</strong> di stipendio.</li>
-                <li><strong>Impatto a Bilancio (anni successivi):</strong> Iscrizione nei Costi di <strong>10 milioni</strong> di ammortamento e di <strong>2.5 milioni</strong> di stipendio.</li>
-            </ul>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    ### 4.3 Cessione a Titolo Definitivo
-    Il **Valore Residuo** di un calciatore è il valore patrimoniale netto del cartellino, calcolato sottraendo dal costo storico gli ammortamenti già contabilizzati negli esercizi precedenti. La cessione di un tesserato genera:
-    1. **Sotto il profilo della Liquidità (Cassa):** Accredito istantaneo del corrispettivo pattuito per la vendita.
-    2. **Sotto il profilo Economico (Bilancio):** L'interruzione degli oneri futuri (ammortamento e stipendio non ancora maturati) e la rilevazione nel Bilancio dell'anno in corso di una **Plusvalenza** (se il prezzo di vendita è superiore al Valore Residuo) o di una **Minusvalenza** (se il prezzo di vendita è inferiore al Valore Residuo), rispettivamente nei Ricavi o nei Costi.
-    """)
-    
-    # ESEMPIO 3 HTML
-    st.markdown("""
-    <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
-        <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
-            Esempio Pratico: Cessione
-        </div>
-        <div style="padding: 12px; color: #1F2937;">
-            Il <em>Calciatore X</em> (costo storico 40M per 4 anni) è ceduto al termine del secondo anno. L'ammortamento cumulato è pari a 20M. Il suo <strong>Valore Residuo è pari a 20 milioni</strong>. La cessione avviene per <strong>35 milioni</strong>.
-            <ul style="margin-bottom: 0; padding-top: 8px;">
-                <li><strong>Impatto sulla Cassa:</strong> Incremento immediato di 35 milioni.</li>
-                <li><strong>Impatto a Bilancio:</strong> Iscrizione nei Ricavi di una <strong>Plusvalenza pari a 15 milioni</strong> (35 - 20). Annullamento degli oneri per gli esercizi futuri.</li>
-            </ul>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    **Cessioni a Gennaio:** In caso di cessione di un calciatore a Gennaio, la società cedente ha l'obbligo di iscrivere a bilancio la quota di ammortamento e lo stipendio relativi al semestre di permanenza (luglio-dicembre), garantendo così che la società sostenga i costi solo per il periodo in cui ha effettivamente utilizzato il calciatore.
-    
-    **Vincolo per Cessioni di giocatori in prestito:** Non è assolutamente consentito vendere a titolo definitivo o inserire in scambi di mercato un calciatore che si trova attualmente ceduto in prestito presso un'altra società. È necessario prima accordarsi con la controparte per l'interruzione anticipata del prestito e richiamare il giocatore nella rosa attiva.
-    
-    ### 4.4 Scambi di Giocatori tra Società
-    Nel sistema manageriale, lo scambio puro di giocatori senza transazione economica non è contemplato. Le due società sono obbligate a dichiarare come prezzo di vendita l'**esatto Valore Residuo** del proprio giocatore. In questo modo non verranno generate plusvalenze o minusvalenze, e l'eventuale differenza tra i due valori si tradurrà automaticamente in un conguaglio economico in Cassa a favore di chi cede il giocatore col valore residuo più alto.
-    
-    ### 4.5 Trasferimenti a Titolo Temporaneo (Prestiti)
-    Le società hanno la facoltà di negoziare la cessione a titolo temporaneo dei diritti alle prestazioni sportive di un tesserato per una durata predefinita di **1 o 2 stagioni sportive**. I trasferimenti temporanei possono configurarsi in tre tipologie: **prestito secco**, **prestito con diritto di riscatto** e **prestito con obbligo di riscatto** (subordinato o meno al verificarsi di determinate condizioni sportive).
-    
-    **Regola UEFA per la Cessione in Prestito (Scadenza Contratto):** Al fine di evitare lo svincolo a parametro zero durante il periodo di lontananza, è severamente vietato cedere in prestito un calciatore la cui durata contrattuale residua sia inferiore o uguale alla durata del prestito stesso. Per ufficializzare l'operazione, il calciatore deve avere almeno un anno di contratto in più rispetto alla durata del prestito (es. per un prestito di 1 anno, il contratto residuo deve essere di minimo 2 anni). In caso contrario, la società madre ha l'obbligo di rinnovargli il contratto prima di cederlo.
-    
-    **Prestito Oneroso e Impatto Contabile Immediato:** Le società possono pattuire un corrispettivo in denaro per l'affitto temporaneo del tesserato (Prestito Oneroso). L'eventuale onere pattuito genera un impatto istantaneo:
-    * **Cassa:** L'importo viene detratto immediatamente dalla Liquidità della società acquirente e versato sul conto della società cedente.
-    * **Bilancio:** Al fine di garantire il Fair Play dell'esercizio in corso, l'importo costituisce per la società cedente una **Plusvalenza** da iscrivere nei Ricavi, e per la società acquirente una **Minusvalenza** (costo di locazione) da iscrivere negli Oneri d'esercizio.
-    
-    *Nota bene:* In caso di interruzione anticipata del prestito oneroso, la quota iniziale versata a titolo di locazione non è soggetta ad alcun rimborso parziale o totale.
-    
-    **Ammortamenti, Oneri Salariali e Rappresentazione in Rosa:** La stipula di un trasferimento a titolo temporaneo genera i seguenti effetti contabili continuativi per l'intera durata dell'accordo:
-    * **Quote di Ammortamento:** L'onere dell'ammortamento annuale rimane **integralmente a carico della società cedente** (proprietaria del cartellino), la quale continuerà a dedurlo regolarmente nel proprio Bilancio.
-    * **Oneri Salariali (Stipendio):** La ripartizione del compenso annuale è soggetta a **libera contrattazione** tra le parti. Le società possono concordare qualsivoglia ripartizione percentuale (es. 50% e 50%, 100% a carico della cessionaria, 100% a carico della cedente). Le quote proporzionali così pattuite andranno obbligatoriamente iscritte alla voce "Monte Ingaggi" dei rispettivi Bilanci d'Esercizio.
-    * **Rappresentazione per la società acquirente:** Nel gestionale, la squadra che acquisisce il tesserato in prestito lo vedrà iscritto nella propria rosa attiva con un costo d'acquisto figurativo recante la dicitura "Prestito", ammortamento pari a zero, e alla voce stipendio riporterà unicamente l'importo relativo alla quota percentuale pattuita a proprio carico.
-    * **Prestito nella Sessione Invernale:** In caso di prestito stipulato nella sessione di Gennaio con condivisione dell'ingaggio, la quota di stipendio a carico della squadra acquirente viene calcolata solo sulla frazione di stagione rimanente (6 mesi). Se la durata del prestito è superiore all'anno, nella stagione sportiva successiva la quota di stipendio a carico dell'acquirente verrà ripristinata e calcolata sull'intero importo del compenso annuale.
-    
-    **Risoluzione Anticipata del Prestito:** Le due società coinvolte possono accordarsi in qualsiasi momento per l'interruzione anticipata del prestito e il calciatore farà rientro immediato nella rosa attiva della società madre. La risoluzione anticipata annulla in automatico qualsiasi precedente accordo relativo a diritti o obblighi di riscatto.
-    
-    **Esercizio del Riscatto:** Al fine di preservare l'integrità del Fair Play Finanziario per l'esercizio in corso, l'esercizio dei diritti e obblighi di riscatto agiscono in veste di **pre-accordi vincolanti (Prenotazioni)**. 
-    
-    La formalizzazione del riscatto non produce alcun effetto immediato sulla Liquidità corrente o sul Bilancio dell'anno in corso. L'esecuzione materiale e contabile, ovvero il transito del denaro in Cassa e il calcolo delle Plusvalenze/Minusvalenze da riscatto, viene posticipata e resa effettiva esclusivamente all'atto della Chiusura Fiscale di fine stagione, ricadendo di fatto quale prima operazione d'apertura del Bilancio della stagione successiva.
-    
-    Qualora venga esercitato il diritto di riscatto, o al maturare delle condizioni per l'obbligo di riscatto, l'operazione si converte in una **Cessione a Titolo Definitivo** a tutti gli effetti legali e contabili. A far data dall'effettiva esecuzione contabile del riscatto:
-    1. La società cedente incassa il corrispettivo pattuito nella Liquidità e calcola l'eventuale Plusvalenza o Minusvalenza, confrontando il prezzo di riscatto con il Valore Residuo del tesserato in quel preciso momento patrimoniale.
-    2. La società acquirente detrae l'importo dalla propria Liquidità, subentra nella titolarità del cartellino assumendosi il 100% degli oneri salariali futuri e avvia un nuovo piano di ammortamento basato sul costo del riscatto e sulla durata del nuovo contratto stipulato.
-    
-    ### 4.6 Dinamiche di Mercato con Campionati Esteri e Serie Inferiori
-    Le operazioni di mercato reali che coinvolgono campionati esteri o serie inferiori producono effetti obbligatori sui bilanci delle società.
-    
-    **Cessione a Titolo Definitivo:**  
-    Qualora un tesserato venga venduto a titolo definitivo nella realtà a un club estero o di categoria inferiore, la società proprietaria del cartellino procede alla cessione forzata. Il corrispettivo della vendita sarà pari alle cifre ufficiali del trasferimento reale. L'operazione genererà la relativa Plusvalenza o Minusvalenza.
-    
-    **Scadenza di Prestito Reale e Ritorno all'Estero:**  
-    Se una società acquista un calciatore che nella realtà milita in Serie A a titolo temporaneo (prestito), nel caso in cui il calciatore rientri al proprio club madre estero lasciando l'Italia, la società dovrà obbligatoriamente svincolare il giocatore, generando una **Minusvalenza Totale** pari al Valore Residuo non ancora ammortizzato.
-    
-    **Prestito all'Estero di giocatori di proprietà:**  
-    Qualora un tesserato di proprietà di una società venga ceduto in prestito temporaneo reale verso campionati esteri o serie inferiori, la società proprietaria dovrà procedere al prestito del calciatore per la stessa durata del prestito reale.
-    1. **Ammortamento:** Resta a carico della società per l'intera durata del prestito all'estero.
-    2. **Stipendio:** La società risparmierà il 100% dell'onere salariale per il periodo di prestito.
-    
-    Al termine del prestito reale, il giocatore tornerà a disposizione della società; qualora il club estero proceda invece al riscatto del giocatore e quindi all'acquisto definitivo, si applicherà la regola 1 (Cessione a Titolo Definitivo).
-
-    ### 4.7 Risoluzione Anticipata e Scadenza Naturale del Contratto
-    L'interruzione anticipata del vincolo contrattuale (svincolo) determina l'azzeramento del valore patrimoniale del calciatore.
-    * **Impatto sulla Cassa:** Nessun introito (variazione nulla).
-    * **Impatto a Bilancio:** Iscrizione nei Costi d'esercizio di una **Minusvalenza totale**, di importo pari all'intero Valore Residuo del tesserato al momento dello svincolo. Come per le cessioni, lo svincolo in sessione invernale di un giocatore appena acquistato o rinnovato prenderà in esame il Valore Residuo intatto per il calcolo della minusvalenza (anti-doppia decurtazione).
-    
-    Analogamente alle cessioni, non è consentito svincolare un giocatore qualora questi si trovi in prestito.
-    
-    **Scadenza Naturale del Vincolo (Parametro Zero):** Al termine della durata contrattuale pattuita, qualora non sia intervenuto alcun accordo di rinnovo, il vincolo sportivo decade in via automatica all'atto della Chiusura Fiscale di fine stagione. Il calciatore viene rimosso dalla rosa a parametro zero. Tale evento **non genera alcuna minusvalenza**, in quanto l'ammortamento del costo storico è giunto a naturale esaurimento (il Valore Residuo è pari a zero). La società beneficerà unicamente dello sgravio a bilancio del relativo onere salariale (stipendio) per gli esercizi futuri.
-    
-    ### 4.8 Rinnovo Contrattuale
-    Le società hanno la facoltà di prolungare il contratto di un proprio tesserato. Tuttavia, ci sono dei vincoli che ogni società deve rispettare:
-    * Non è consentito rinnovare il contratto di un giocatore nella stessa sessione di mercato in cui è stato acquistato.
-    * Non è consentito rinnovare il contratto di un giocatore il cui contratto ha ancora una durata superiore ai 2 anni (il rinnovo è permesso solo in presenza di 1 o 2 anni residui).
-    * Non è consentito rinnovare il contratto di un giocatore mentre quest'ultimo si trova in prestito presso un'altra società.
-    
-    Anche un giocatore acquistato nella sessione estiva con un contratto di 1 anno, non potrà essere rinnovato immediatamente: la società potrà proporre un rinnovo contrattuale solo all'apertura della successiva sessione Invernale.
-    
-    Il rinnovo non "somma" anni al vecchio contratto, bensì lo sovrascrive, per un prolungamento **massimo di 5 anni**. Come accade per gli acquisti, anche per i rinnovi stipulati nella sessione invernale la durata effettiva del nuovo contratto viene decurtata di 0.5 stagioni.
-    
-    La sottoscrizione di un rinnovo produce due effetti contabili sul Bilancio d'Esercizio, ma con differenti logiche in base alle sessione (estiva o invernale):
-    1. **Rinnovo Estivo:** Lo stipendio annuale subisce un incremento obbligatorio del +15%. Il Valore Residuo attuale viene "spalmato" sui nuovi anni scelti, abbassando istantaneamente la Quota di Ammortamento annuale e fornendo un utile strumento per alleggerire il Bilancio della stagione in corso.
-    2. **Rinnovo Invernale:** Il gestionale applicherà un esatto calcolo Pro-Quota (50 e 50) sul bilancio dell'anno in corso. Per la stagione corrente, la società pagherà un ammortamento e uno stipendio calcolati sommando metà del vecchio contratto maturato (da Luglio a Dicembre) e metà del nuovo contratto stipulato (da Gennaio a Giugno). Dall'anno fiscale successivo, i valori del nuovo contratto entreranno a regime al 100%. *Nota bene:* alla prima Chiusura Fiscale successiva al rinnovo invernale, il contratto avanzerà (invecchierà) di sole 0.5 stagioni.
-    """)
-    
-    # ESEMPIO 4 HTML
-    st.markdown("""
-    <div style="border: 1.5px solid #2B6CB0; border-radius: 4px; background-color: #F4F8FC; margin-bottom: 1rem;">
-        <div style="background-color: #2B6CB0; color: white; padding: 6px 12px; font-weight: bold; border-top-left-radius: 2px; border-top-right-radius: 2px;">
-            Esempio Pratico: Rinnovo Contrattuale
-        </div>
-        <div style="padding: 12px; color: #1F2937;">
-            Il <em>Calciatore X</em> percepisce uno stipendio di 1.5M e ha un Valore Residuo di <strong>15 milioni</strong>. La società decide di rinnovare il contratto per ulteriori <strong>3 anni</strong>.
-            <ul style="margin-bottom: 0; padding-top: 8px;">
-                <li><strong>Nuovo Stipendio:</strong> Incremento del 15% su 1.5M &rarr; Nuovo stipendio pari a <strong>1.725 milioni</strong> annui.</li>
-                <li><strong>Nuovo Ammortamento:</strong> I 15 milioni di Valore Residuo vengono divisi per i 3 nuovi anni &rarr; Nuova quota di ammortamento pari a <strong>5 milioni</strong> annui.</li>
-                <li><strong>Impatto a Bilancio:</strong> A fronte di un lieve aumento del monte ingaggi, la società abbassa notevolmente i costi di ammortamento correnti, alleggerendo il bilancio ed evitando minusvalenze future.</li>
-            </ul>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # SECTION 5
-    st.subheader("5. Competizioni Ufficiali e Premi Sportivi")
-    st.markdown("""
-    Al termine della stagione sportiva, la Direzione provvede all'erogazione dei corrispettivi in denaro maturati in base ai risultati conseguiti nelle tre competizioni ufficiali previste dal calendario. Tali somme vengono erogate istantaneamente nella Cassa e contribuiscono ad accrescere la voce "Premi Sportivi" nel Bilancio d'Esercizio in vista della chiusura fiscale.
-
-    ### 5.1 Campionato di Lega
-    Al fine di garantire la competitività, l'equilibrio della Lega nel lungo periodo e agevolare la ricostruzione finanziaria, l'ammontare dei premi di Campionato è distribuito seguendo un criterio che privilegia i posizionamenti inferiori:
-    * **1ª Classificata:** 50 milioni
-    * **2ª Classificata:** 52 milioni
-    * **3ª Classificata:** 55 milioni
-    * **4ª Classificata:** 58 milioni
-    * **5ª Classificata:** 62 milioni
-    * **6ª Classificata:** 65 milioni
-    * **7ª Classificata:** 68 milioni
-    * **8ª Classificata:** 70 milioni
-    
-    ### 5.2 Coppa Italia
-    La Coppa Italia si articola in tre turni a eliminazione diretta, disputati interamente in **gara secca**.
-    
-    **Calendario Ufficiale:**
-    * **Quarti di Finale:** 15ª Giornata di Campionato
-    * **Semifinali:** 25ª Giornata di Campionato
-    * **Finale:** 35ª Giornata di Campionato
-    
-    **Proventi Sportivi:**
-    * **1ª Classificata (Vincitrice):** 35 milioni
-    * **2ª Classificata (Finalista):** 20 milioni
-    * **3ª e 4ª Classificata (Semifinaliste):** 10 milioni
-
-    ### 5.3 Champions League
-    La Champions League si struttura in una fase iniziale composta da **due gironi all'italiana da 4 squadre** (con incontri di andata e ritorno), seguita da Semifinali (con incontri di andata e ritorno) e da una Finale in gara secca in campo neutro.
-    
-    **Calendario Ufficiale:**
-    * **Fase a Gironi (Andata e Ritorno):** 4ª, 8ª, 12ª, 16ª, 20ª e 24ª Giornata di Campionato
-    * **Semifinali (Andata e Ritorno):** 28ª e 32ª Giornata di Campionato
-    * **Finale:** 36ª Giornata di Campionato
-    
-    **Proventi Sportivi (Meritocratici):**
-    * **1ª Classificata (Vincitrice):** 50 milioni
-    * **2ª Classificata (Finalista):** 35 milioni
-    * **3ª e 4ª Classificata (Semifinaliste):** 20 milioni
-    """)
-
-    st.divider()
-
-    # SECTION 6
-    st.subheader("6. Chiusura del Bilancio d'Esercizio")
-    st.markdown("""
-    Al termine di ciascuna stagione sportiva, prima dell'avvio della sessione di mercato estiva successiva, le società hanno l'obbligo di redigere il Bilancio d'Esercizio, determinando il differenziale tra il Valore della Produzione e i Costi della Produzione. Questo è l'atto formale che chiude l'anno sportivo.
-    
-    ### 6.1 Ricavi di Produzione
-    Concorrono alla formazione dei ricavi le seguenti voci:
-    * **Premi Sportivi:** Introiti accreditati a bilancio a seguito dei piazzamenti finali nelle competizioni ufficiali.
-    * **Proventi da Sponsorizzazione:** Quota erogata all'apertura dell'esercizio (pari a 40 milioni fissi per tutti durante la prima stagione sportiva di fondazione; dalla seconda stagione in poi, determinata con criterio meritocratico in base alla classifica finale dell'anno precedente).
-    * **Proventi da Stadio:** Somma matematica dei ricavi lordi per singola partita disputata nell'impianto di proprietà.
-    * **Plusvalenze Patrimoniali:** Utili generati dalla cessione dei diritti sulle prestazioni sportive.
-    * **Nuovo Capitale:** Iniezione di liquidità garantita dalla Lega (pari a 70 milioni) iscritta a Bilancio all'apertura di ogni nuovo esercizio contabile **(esclusivamente a partire dalla seconda stagione)**.
-
-    ### 6.2 Costi di Produzione
-    Concorrono alla formazione dei costi le seguenti voci:
-    * **Quote di Ammortamento:** Somma delle quote di competenza per l'esercizio in corso di tutti i tesserati (inclusi i giocatori ceduti in prestito temporaneo).
-    * **Monte Ingaggi:** Ammontare complessivo delle retribuzioni fisse spettanti ai tesserati nell'esercizio in corso, al netto delle decurtazioni per i tesserati in prestito.
-    * **Oneri di Gestione Infrastrutture:** Costi di mantenimento e operatività dell'impianto sportivo.
-    * **Minusvalenze Patrimoniali:** Perdite d'esercizio generate da svincoli o cessioni sotto il Valore Residuo.
-
-    ### 6.3 Determinazione del Risultato d'Esercizio
-    Il risultato d'esercizio si determina sottraendo il totale dei Costi della Produzione dal totale del Valore della Produzione (Ricavi - Costi).
-
-    ### 6.4 Flussi di Cassa e Fair Play Finanziario
-    Al termine della stagione sportiva, all'atto formale della Chiusura Fiscale, il gestionale applica una procedura automatica e sequenziale in 4 fasi per riconciliare la Cassa reale con il Bilancio d'Esercizio:
-    
-    1. **Pagamento degli Oneri Correnti:** Viene materialmente prelevato dalla Cassa il fondo necessario al pagamento fisico degli stipendi maturati nell'anno (Monte Ingaggi). *Nota: I costi di gestione dello Stadio non vengono prelevati in questa fase in quanto già saldati anticipatamente all'apertura della stagione.*
-    2. **Verifica del Fair Play Finanziario:** Viene calcolato il Risultato d'Esercizio del Bilancio (Ricavi - Costi).
-       * 🟢 **Risultato Positivo (Utile d'Esercizio):** La società ha rispettato i parametri economici. Non avviene alcuna sanzione.
-       * 🔴 **Risultato Negativo (Perdita d'Esercizio):** La società ha violato i parametri UEFA. Il deficit di bilancio fa scattare in automatico una **multa**. Il sistema preleverà dalla cassa una penale pari al **15% dell'intera perdita registrata**, riducendo di fatto la liquidità disponibile per la stagione successiva.
-    3. **Azzeramento Bilancio:** Il documento contabile viene salvato in archivio e azzerato, tornando a un saldo di 0 per preparare la nuova stagione sportiva. Vengono contestualmente resi effettivi i riscatti, i rinnovi prenotati e gli svincoli a parametro zero.
-    4. **Apertura del Nuovo Esercizio e Iniezioni di Capitale:** (Fase attiva a partire dalla seconda stagione). Il sistema provvede a immettere **nuova liquidità in Cassa**: accredita istantaneamente i **70 milioni** del nuovo capitale, unitamente ai **Proventi dello Sponsor** maturati grazie alla classifica dell'anno appena concluso. Le stesse identiche voci vengono iscritte nei nuovi Ricavi a Bilancio, fornendo alle società la base operativa su cui fondare il mercato della nuova stagione.
-    """)
