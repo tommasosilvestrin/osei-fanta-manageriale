@@ -1556,7 +1556,7 @@ elif menu == "6. Classifica Campionato":
             if premi_gia_dati:
                 st.info("✅ **Premi di fine campionato e Sponsor già erogati per questa stagione.**")
             else: 
-                if st.button("🏆 Distribuisci Premi Campionato e Sponsor", type="primary"):
+                if st.button("🏆 Distribuisci Premi Campionato", type="primary"):
                     st.subheader("💰 Resoconto Assegnazione Premi") # <-- TITOLO AGGIUNTO
                     
                     squadre_ordinate = df_c.index.tolist()
