@@ -293,7 +293,7 @@ if menu == "1. Setup Società":
         with st.form("crea_squadra"):
             c1, c2 = st.columns(2)
             nome = c1.text_input("Nome Squadra")
-            mister = c2.text_input("Allenatore")
+            mister = c2.text_input("Presidente")
             if st.form_submit_button("Iscrivi Squadra (Fondo 500M)"):
                 if nome and mister and nome not in db:
                     db[nome] = {
@@ -760,25 +760,20 @@ elif menu == "3. Mercato (Definitivi)":
     if not st.session_state.is_admin:
         st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di mercato.")
     else:
-        if not db: st.warning("Crea una squadra.")
+        if not db: 
+            st.warning("Crea una squadra.")
         else:
-            sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
-            squadra = db[sq_sel]
-            
-            # --- 1. CREIAMO IL SEGNAPOSTO ---
-            info_header = st.empty()
-            # Lo riempiamo subito con i dati attuali
-            info_header.write(f"💰 **Cassa:** {squadra['cassa']:.2f} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
-            
-            # --- ORDINAMENTO ROSA PER RUOLO ---
+            # Ordine ruoli fisso per tutti
             ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
-            # Creiamo una lista della rosa ordinata in base al valore del dizionario sopra
-            rosa_ordinata = sorted(squadra['rosa'], key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
+
+            t_acq, t_trasf, t_svin, t_rin = st.tabs(["Asta", "Trasferimenti", "Svincola", "Rinnovo"])
             
-            t1, t3, t4, t5 = st.tabs(["Acquista", "Vendi", "Svincola", "Rinnovo"])
-            
-            with t1:
-                # Sostituiamo st.form con st.container per avere l'aggiornamento in tempo reale!
+            # --- TAB 1: ACQUISTA (Dall'asta o svincolati) ---
+            with t_acq:
+                sq_acq_name = st.selectbox("Seleziona Squadra Acquirente", list(db.keys()), key="tab1_sq")
+                sq_acq = db[sq_acq_name]
+                st.write(f"💰 **Cassa:** {sq_acq['cassa']:.2f} MLN | 👥 **Rosa:** {len(sq_acq['rosa'])}/25")
+                
                 with st.container(border=True):
                     sessione_acq = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_acq")
                     st.divider()
@@ -801,176 +796,170 @@ elif menu == "3. Mercato (Definitivi)":
                     else:
                         st.info(f"💡 Dati Contratto: Stipendio {s_base}M | Ammortamento {amm:.2f}M annui.")
                     
-                    # Sostituiamo il form_submit_button con un normale button
-                    if st.button("Conferma Acquisto", type="primary"):
-                        if c > squadra['cassa']: 
+                    if st.button("Conferma Acquisto da Asta", type="primary"):
+                        if c > sq_acq['cassa']: 
                             st.error("Cassa insufficiente!")
                         elif not n:
                             st.warning("Inserisci il nome del calciatore prima di acquistare.")
                         else:
                             giocatore = {"nome": n, "ruolo": r, "costo_acquisto": c, "anni_contratto": anni_effettivi, "stipendio": s_base, "ammortamento_annuo": amm, "anni_trascorsi": 0, "valore_residuo": c, "acquistato_a_gennaio": is_gennaio}
-                            squadra['rosa'].append(giocatore)
-                            squadra['cassa'] = round(squadra['cassa'] - c, 2)
-                            squadra['bilancio']['storico_movimenti'].append(f"Acquisto {n}: -{c}M")
+                            sq_acq['rosa'].append(giocatore)
+                            sq_acq['cassa'] = round(sq_acq['cassa'] - c, 2)
+                            sq_acq['bilancio']['storico_movimenti'].append(f"Acquisto {n}: -{c}M")
                             save_data(db, DB_PATH)
-                            log_evento(sq_sel, "✍️", f"ha acquistato **{n}** per **{c} M** ({anni_effettivi} anni di contratto).")
+                            log_evento(sq_acq_name, "✍️", f"ha acquistato **{n}** per **{c} M** ({anni_effettivi} anni di contratto).")
                             st.toast(f"Contratto firmato! {n} è un tuo giocatore.", icon="✍️")
-                            
-                            # AGGIORNIAMO IL SEGNAPOSTO
-                            info_header.write(f"💰 **Cassa:** {squadra['cassa']:.2f} MLN | 👥 **Rosa:** {len(squadra['rosa'])}/25")
-                     
-            # with t2:
-            #     st.subheader("🔥 Esercita Clausola Rescissoria")
-            #     st.markdown("Paga il **Doppio del Valore Residuo** per acquistare un giocatore di un'altra squadra!")
-                
-            #     sessione_clausola = st.radio("Sessione di Mercato (Clausola)", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_clausola")
-            #     is_gen_clausola = "Invernale" in sessione_clausola
-            #     st.divider()
-                
-            #     col_A, col_B = st.columns(2)
-            #     sq_acquirente = col_A.selectbox("Società acquirente", list(db.keys()), key="clausola_acq")
-            #     sq_derubata = col_B.selectbox("Società cedente", [s for s in db.keys() if s != sq_acquirente], key="clausola_der")
-                
-            #     # Filtriamo i giocatori che NON sono in prestito (non puoi pagare la clausola per un giocatore in prestito)
-            #     rosa_derubabile = [g for g in db[sq_derubata]['rosa'] if not g.get('prestato_a') and not g.get('in_prestito_da')]
-                
-            #     if not rosa_derubabile:
-            #         st.info("Nessun giocatore acquistabile in questa squadra.")
-            #     else:
-            #         g_scelto_nome = st.selectbox("Seleziona Giocatore", [g['nome'] for g in rosa_derubabile])
-            #         g_scelto = next(g for g in rosa_derubabile if g['nome'] == g_scelto_nome)
-                    
-            #         # Matematica della Clausola
-            #         vr_attuale = g_scelto['valore_residuo']
+                            st.rerun()
 
-            #         if is_gen_clausola and not g_scelto.get('acquistato_a_gennaio', False):
-            #             # A Gennaio, il VR scende di mezza quota di ammortamento (perché ha giocato 6 mesi)
-            #             quota_semestrale = g_scelto['ammortamento_annuo'] / 2
-            #             vr_di_calcolo = vr_attuale - quota_semestrale
-            #             st.info(f"❄️ Sessione Invernale: Il Valore Residuo è sceso da {vr_attuale:.2f} M a **{vr_di_calcolo:.2f} M**.")
-            #         else:
-            #             # In estate (o se appena comprato a gennaio) si usa il VR pieno
-            #             vr_di_calcolo = vr_attuale
-                        
-            #         costo_clausola = round(vr_di_calcolo * 2, 2)
-            #         plusvalenza_generata = round(costo_clausola - vr_di_calcolo, 2)
-                    
-            #         st.error(f"💰 **Costo totale della Clausola:** {costo_clausola} M")
-            #         st.success(f"La società {sq_derubata} incasserà i soldi e genererà una Plusvalenza a bilancio di **+{plusvalenza_generata} M**!")
-                    
-            #         # L'acquirente deve fargli un nuovo contratto!
-            #         nuovi_anni = st.slider("Anni di contratto da firmare", 1, 5, 3, key="clausola_anni")
-                    
-            #         anni_effettivi_nuovi = nuovi_anni - 0.5 if is_gen_clausola else nuovi_anni
-            #         if is_gen_clausola:
-            #             st.caption(f"*(A Gennaio la durata effettiva del nuovo contratto sarà di {anni_effettivi_nuovi} anni)*")
-                    
-            #         if st.button("🚨 Paga clausola rescissoria", type="primary"):
-            #             if db[sq_acquirente]['cassa'] < costo_clausola:
-            #                 st.error("Cassa insufficiente per pagare la clausola!")
-            #             else:
-            #                 # 1. Movimenti Cassa e Bilancio
-            #                 db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_clausola, 2)
-            #                 db[sq_derubata]['cassa'] = round(db[sq_derubata]['cassa'] + costo_clausola, 2)
-            #                 db[sq_derubata]['bilancio']['ricavi']['plusvalenze'] += plusvalenza_generata
-                            
-            #                 # Se rubato a Gennaio, la squadra derubata deve pagare lo stipendio e ammortamento dei primi 6 mesi
-            #                 if is_gen_clausola and not g_scelto.get('acquistato_a_gennaio', False):
-            #                     db[sq_derubata]['bilancio']['costi']['ammortamenti'] += (g_scelto['ammortamento_annuo'] / 2)
-            #                     db[sq_derubata]['bilancio']['costi']['monte_ingaggi'] += (g_scelto['stipendio'] / 2)
-                            
-            #                 # 2. Aggiorniamo i parametri del giocatore per il nuovo proprietario
-            #                 g_rubato = g_scelto.copy()
-            #                 g_rubato['costo_acquisto'] = costo_clausola
-            #                 g_rubato['valore_residuo'] = costo_clausola
-            #                 g_rubato['anni_contratto'] = anni_effettivi_nuovi
-            #                 g_rubato['anni_trascorsi'] = 0
-                            
-            #                 # Attenzione all'ammortamento del nuovo proprietario
-            #                 # Calcoliamo l'ammortamento annuo "a regime"
-            #                 amm_annuo_nuovo = costo_clausola / nuovi_anni 
-            #                 g_rubato['ammortamento_annuo'] = round(amm_annuo_nuovo, 2)
-                            
-            #                 # Calcolo nuovo stipendio in base allo scaglione (usando la tua funzione calcola_stipendio)
-            #                 g_rubato['stipendio'] = calcola_stipendio(costo_clausola) 
-            #                 g_rubato['acquistato_a_gennaio'] = is_gen_clausola
-                            
-            #                 # 3. Spostiamo il giocatore da una rosa all'altra
-            #                 db[sq_acquirente]['rosa'].append(g_rubato)
-            #                 db[sq_derubata]['rosa'] = [g for g in db[sq_derubata]['rosa'] if g['nome'] != g_scelto_nome]
-                            
-            #                 save_data(db, DB_PATH)
-            #                 log_evento(sq_acquirente, "🔥", f"ha pagato la clausola rescissoria di **{costo_clausola:.2f}M** per acquistare **{g_scelto_nome}** dal **{sq_derubata}** ({anni_effettivi_nuovi} anni di contratto).")
-            #                 st.rerun()
-            
-            with t3:
-                if rosa_ordinata:
-                    with st.container(border=True):
-                        sessione_ven = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_ven")
-                        st.divider()
-                        
-                        indice_a = st.selectbox(
-                            "Seleziona da Vendere", 
-                            options=range(len(rosa_ordinata)), 
-                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
-                            key="vendita_idx"
-                        )
-
-                        g_obj = rosa_ordinata[indice_a]
-                        
-                        # CONTROLLO DI SICUREZZA: Esegue solo se g_obj non è vuoto
-                        if g_obj:
-                            if g_obj.get("prestato_a"):
-                                st.error(f"❌ Impossibile vendere. {g_obj['nome']} è attualmente in prestito a {g_obj['prestato_a']}.")
-                            elif g_obj.get("in_prestito_da"):
-                                st.error(f"❌ Operazione Illegale. Non puoi vendere {g_obj['nome']} perché è di proprietà di: {g_obj['in_prestito_da']}.")
-                            else:
-                                if "Invernale" in sessione_ven:
-                                    # Evita la doppia svalutazione se il giocatore è stato comprato o rinnovato IN QUESTA STESSA SESSIONE di Gennaio
-                                    if (g_obj.get('rinnovato_a_gennaio') or g_obj.get('acquistato_a_gennaio')) and g_obj.get('anni_trascorsi', 0) == 0:
-                                        val_res_effettivo = g_obj['valore_residuo']
-                                    else:
-                                        val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2)
-                                else:
-                                    val_res_effettivo = g_obj['valore_residuo']
-                                st.write(f"📊 Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
-                                
-                                prezzo_v = st.number_input("Prezzo di Vendita (MLN)", min_value=0.0, step=1.0)
-                                
-                                # Bottone largo!
-                                if st.button("Conferma Cessione", type="primary", key="btn_conferma_cessione"):
-                                    if "Invernale" in sessione_ven:
-                                        squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
-                                    
-                                    diff = prezzo_v - val_res_effettivo
-                                    squadra['cassa'] = round(squadra['cassa'] + prezzo_v, 2)
-                                    if diff > 0: squadra['bilancio']['ricavi']['plusvalenze'] += diff
-                                    else: squadra['bilancio']['costi']['minusvalenze'] += abs(diff)
-                                    
-                                    squadra['rosa'].remove(g_obj)
-                                    save_data(db, DB_PATH)
-                                    log_evento(sq_sel, "✈️", f"ha ceduto **{g_obj['nome']}** a titolo definitivo per **{prezzo_v} M**.")
-                                    st.toast(f"{g_obj['nome']} ceduto definitivamente per {prezzo_v} M!", icon="✈️")
-                                    st.rerun()
+            # --- TAB 2: TRASFERIMENTI (Tra società) ---
+            with t_trasf:
+                if len(db.keys()) < 2:
+                    st.warning("⚠️ Servono almeno due squadre per poter effettuare trasferimenti di mercato.")
                 else:
-                    st.info("Nessun giocatore in rosa da vendere.")
+                    col_ced, col_comp = st.columns(2)
+                    sq_ced_name = col_ced.selectbox("📤 Società Cedente", list(db.keys()), key="tab2_sq_ced")
+                    
+                    squadre_acquirenti = [s for s in db.keys() if s != sq_ced_name]
+                    sq_comp_name = col_comp.selectbox("📥 Società Acquirente", squadre_acquirenti, key="tab2_sq_comp")
+                    
+                    sq_ced = db[sq_ced_name]
+                    sq_comp = db[sq_comp_name]
+                    
+                    st.write(f"**Cassa {sq_ced_name}:** {sq_ced['cassa']:.2f} MLN &nbsp;&nbsp;|&nbsp;&nbsp; **Cassa {sq_comp_name}:** {sq_comp['cassa']:.2f} MLN")
+                    
+                    rosa_ordinata_ced = sorted(sq_ced['rosa'], key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
+                    
+                    if rosa_ordinata_ced:
+                        with st.container(border=True):
+                            sessione_ven = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_ven")
+                            st.divider()
                             
-            with t4:
-                if rosa_ordinata:
+                            indice_a = st.selectbox(
+                                "Calciatore da Trasferire", 
+                                options=range(len(rosa_ordinata_ced)), 
+                                format_func=lambda i: f"{rosa_ordinata_ced[i]['nome']} ({rosa_ordinata_ced[i]['ruolo'][:3].upper()})", 
+                                key="vendita_idx"
+                            )
+                            
+                            g_obj = rosa_ordinata_ced[indice_a]
+                            
+                            if g_obj:
+                                if g_obj.get("prestato_a"):
+                                    st.error(f"❌ Impossibile trasferire. {g_obj['nome']} è attualmente in prestito a {g_obj['prestato_a']}.")
+                                elif g_obj.get("in_prestito_da"):
+                                    st.error(f"❌ Operazione Illegale. Non puoi vendere {g_obj['nome']} perché è in prestito da: {g_obj['in_prestito_da']}.")
+                                else:
+                                    if "Invernale" in sessione_ven:
+                                        if (g_obj.get('rinnovato_a_gennaio') or g_obj.get('acquistato_a_gennaio')) and g_obj.get('anni_trascorsi', 0) == 0:
+                                            val_res_effettivo = g_obj['valore_residuo']
+                                        else:
+                                            val_res_effettivo = g_obj['valore_residuo'] - (g_obj['ammortamento_annuo'] / 2)
+                                    else:
+                                        val_res_effettivo = g_obj['valore_residuo']
+                                    
+                                    st.divider()
+                                    
+                                    c3, c4 = st.columns(2)
+                                    prezzo_v = c3.number_input("Prezzo di Vendita (MLN)", min_value=0.0, step=1.0)
+                                    nuovi_anni = c4.slider("Nuovi anni di contratto (per l'Acquirente)", 1, 5, 3, key="anni_nuovi_trasf")
+                                    
+                                    is_gennaio = True if "Invernale" in sessione_ven else False
+                                    anni_effettivi_nuovi = nuovi_anni - 0.5 if is_gennaio else nuovi_anni
+                                    s_base_nuovo = 1.0 if prezzo_v <= 15 else (2.5 if prezzo_v <= 45 else (4.5 if prezzo_v <= 85 else (7.0 if prezzo_v <= 130 else 11.0)))
+                                    amm_nuovo = prezzo_v / anni_effettivi_nuovi if anni_effettivi_nuovi > 0 else prezzo_v
+
+                                    diff_plus_minus = prezzo_v - val_res_effettivo
+                                    
+                                    st.markdown("##### 📊 Impatto Finanziario")
+                                    col_out, col_in = st.columns(2)
+                                    
+                                    with col_out:
+                                        with st.container(border=True):
+                                            st.markdown(f"**📤 {sq_ced_name}**")
+                                            st.write(f"- Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
+                                            st.write(f"- Cassa: **+{prezzo_v:.2f} M**")
+                                            if diff_plus_minus > 0:
+                                                st.markdown(f"- Impatto a Bilancio: <span style='color: #10B981; font-weight: bold;'>Plusvalenza di +{diff_plus_minus:.2f} M</span>", unsafe_allow_html=True)
+                                            elif diff_plus_minus < 0:
+                                                st.markdown(f"- Impatto a Bilancio: <span style='color: #EF4444; font-weight: bold;'>Minusvalenza di {diff_plus_minus:.2f} M</span>", unsafe_allow_html=True)
+                                            else:
+                                                st.markdown("- Impatto a Bilancio: **Pari (Nessuna plus/minusvalenza)**")
+                                            
+                                    with col_in:
+                                        with st.container(border=True):
+                                            st.markdown(f"**📥 {sq_comp_name}**")
+                                            st.write(f"- Costo d'Acquisto: **-{prezzo_v:.2f} M**")
+                                            st.write(f"- Nuovo Ammortamento: **{amm_nuovo:.2f} M** annui")
+                                            st.write(f"- Nuovo Stipendio: **{s_base_nuovo:.2f} M** annui")
+                                            if is_gennaio:
+                                                st.caption(f"*(Per i 6 mesi correnti l'impatto a bilancio sarà dimezzato)*")
+
+                                    st.write("")
+                                    
+                                    if st.button("Conferma Trasferimento", type="primary", key="btn_conferma_trasf"):
+                                        if prezzo_v > sq_comp['cassa']:
+                                            st.error(f"❌ Operazione annullata: {sq_comp_name} non ha fondi sufficienti ({sq_comp['cassa']:.2f} M in cassa).")
+                                        else:
+                                            # AZIONI PER CHI VENDE
+                                            if is_gennaio:
+                                                sq_ced['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj['ammortamento_annuo'] / 2) + (g_obj['stipendio'] / 2)
+                                            
+                                            sq_ced['cassa'] = round(sq_ced['cassa'] + prezzo_v, 2)
+                                            if diff_plus_minus > 0: 
+                                                sq_ced['bilancio']['ricavi']['plusvalenze'] += diff_plus_minus
+                                            else: 
+                                                sq_ced['bilancio']['costi']['minusvalenze'] += abs(diff_plus_minus)
+                                                
+                                            sq_ced['rosa'].remove(g_obj)
+                                            
+                                            # AZIONI PER CHI COMPRA
+                                            nuovo_giocatore = {
+                                                "nome": g_obj['nome'], 
+                                                "ruolo": g_obj['ruolo'], 
+                                                "costo_acquisto": prezzo_v, 
+                                                "anni_contratto": anni_effettivi_nuovi, 
+                                                "stipendio": s_base_nuovo, 
+                                                "ammortamento_annuo": amm_nuovo, 
+                                                "anni_trascorsi": 0, 
+                                                "valore_residuo": prezzo_v, 
+                                                "acquistato_a_gennaio": is_gennaio
+                                            }
+                                            sq_comp['rosa'].append(nuovo_giocatore)
+                                            sq_comp['cassa'] = round(sq_comp['cassa'] - prezzo_v, 2)
+                                            
+                                            # STORICO MOVIMENTI E LOG
+                                            sq_ced['bilancio']['storico_movimenti'].append(f"Cessione {g_obj['nome']} a {sq_comp_name}: +{prezzo_v}M")
+                                            sq_comp['bilancio']['storico_movimenti'].append(f"Acquisto {g_obj['nome']} da {sq_ced_name}: -{prezzo_v}M")
+                                            
+                                            save_data(db, DB_PATH)
+                                            log_evento(sq_ced_name, "🤝", f"ha ceduto a titolo definitivo **{g_obj['nome']}** al **{sq_comp_name}** per **{prezzo_v} M**.")
+                                            st.toast(f"Trasferimento completato con successo!", icon="🤝")
+                                            st.rerun()
+                    else:
+                        st.info("Nessun giocatore in rosa da trasferire.")
+
+            # --- TAB 3: SVINCOLA ---
+            with t_svin:
+                sq_svin_name = st.selectbox("Seleziona Squadra", list(db.keys()), key="tab3_sq")
+                sq_svin = db[sq_svin_name]
+                st.write(f"💰 **Cassa:** {sq_svin['cassa']:.2f} MLN | 👥 **Rosa:** {len(sq_svin['rosa'])}/25")
+                
+                rosa_ordinata_svin = sorted(sq_svin['rosa'], key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
+                
+                if rosa_ordinata_svin:
                     with st.container(border=True):
                         sessione_svin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_svin")
                         st.divider()
                         
                         indice_s = st.selectbox(
                             "Seleziona da Svincolare", 
-                            options=range(len(rosa_ordinata)), 
-                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                            options=range(len(rosa_ordinata_svin)), 
+                            format_func=lambda i: f"{rosa_ordinata_svin[i]['nome']} ({rosa_ordinata_svin[i]['ruolo'][:3].upper()})", 
                             key="svincolo_idx"
                         )
 
-                        g_obj_s = rosa_ordinata[indice_s]
+                        g_obj_s = rosa_ordinata_svin[indice_s]
                         
-                        # CONTROLLO DI SICUREZZA
                         if g_obj_s:
                             if g_obj_s.get("prestato_a"):
                                 st.error(f"❌ Impossibile svincolare. {g_obj_s['nome']} è attualmente in prestito a {g_obj_s['prestato_a']}.")
@@ -978,7 +967,6 @@ elif menu == "3. Mercato (Definitivi)":
                                 st.error(f"❌ Non puoi svincolare un giocatore in prestito. Proprietà: {g_obj_s['in_prestito_da']}.")
                             else:
                                 if "Invernale" in sessione_svin:
-                                    # Evita la doppia svalutazione se il giocatore è stato comprato o rinnovato IN QUESTA STESSA SESSIONE di Gennaio
                                     if (g_obj_s.get('rinnovato_a_gennaio') or g_obj_s.get('acquistato_a_gennaio')) and g_obj_s.get('anni_trascorsi', 0) == 0:
                                         val_res_effettivo_s = g_obj_s['valore_residuo']
                                     else:
@@ -987,51 +975,51 @@ elif menu == "3. Mercato (Definitivi)":
                                     val_res_effettivo_s = g_obj_s['valore_residuo']
                                 st.error(f"⚠️ Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
                                 
-                                # Bottone largo!
                                 if st.button("Conferma Svincolo", type="primary", key="btn_conferma_svincolo"):
                                     if "Invernale" in sessione_svin:
-                                        squadra['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
+                                        sq_svin['bilancio']['costi']['costi_giocatori_ceduti'] += (g_obj_s['ammortamento_annuo'] / 2) + (g_obj_s['stipendio'] / 2)
                                     
-                                    squadra['bilancio']['costi']['minusvalenze'] += val_res_effettivo_s
-                                    squadra['rosa'].remove(g_obj_s)
+                                    sq_svin['bilancio']['costi']['minusvalenze'] += val_res_effettivo_s
+                                    sq_svin['rosa'].remove(g_obj_s)
                                     save_data(db, DB_PATH)
-                                    log_evento(sq_sel, "📄", f"ha rescisso il contratto di **{g_obj_s['nome']}**.")
+                                    log_evento(sq_svin_name, "📄", f"ha rescisso il contratto di **{g_obj_s['nome']}**.")
                                     st.toast(f"{g_obj_s['nome']} è stato svincolato.", icon="📄")
                                     st.rerun()
                 else:
                     st.info("Nessun giocatore in rosa da svincolare.")
-                            
-            with t5:
-                if rosa_ordinata:
+                        
+            # --- TAB 4: RINNOVA ---
+            with t_rin:
+                sq_rin_name = st.selectbox("Seleziona Squadra", list(db.keys()), key="tab4_sq")
+                sq_rin = db[sq_rin_name]
+                st.write(f"💰 **Cassa:** {sq_rin['cassa']:.2f} MLN | 👥 **Rosa:** {len(sq_rin['rosa'])}/25")
+                
+                rosa_ordinata_rin = sorted(sq_rin['rosa'], key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
+                
+                if rosa_ordinata_rin:
                     with st.container(border=True):
                         sessione_rin = st.radio("Sessione di Mercato", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_rin")
                         is_gen_rin = "Invernale" in sessione_rin
                         st.divider()
                         
-                        # MODIFICA CHIAVE: Usiamo gli indici (numeri interi) invece dei dizionari 
-                        # per evitare che Streamlit perda la memoria al click del bottone!
                         indice_r = st.selectbox(
                             "Seleziona da Rinnovare", 
-                            options=range(len(rosa_ordinata)), 
-                            format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                            options=range(len(rosa_ordinata_rin)), 
+                            format_func=lambda i: f"{rosa_ordinata_rin[i]['nome']} ({rosa_ordinata_rin[i]['ruolo'][:3].upper()})", 
                             key="rinnovo_idx"
                         )
                         
-                        # Recuperiamo il dizionario del giocatore usando l'indice sicuro
-                        g_obj_r = rosa_ordinata[indice_r]
+                        g_obj_r = rosa_ordinata_rin[indice_r]
                         
-                        # CONTROLLO DI SICUREZZA
                         if g_obj_r:
                             if g_obj_r.get("prestato_a"):
                                 st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} è in prestito.")
                             elif g_obj_r.get("in_prestito_da"):
                                 st.error(f"❌ Impossibile rinnovare. {g_obj_r['nome']} non è un tuo giocatore (Proprietà: {g_obj_r['in_prestito_da']}).")
                             else:
-                                # CONTROLLO DI SICUREZZA
                                 blocco_rinnovo = False
                                 msg_blocco = ""
                                 
-                                # 1. Controllo acquisto recente (Esistente)
                                 if g_obj_r.get('anni_trascorsi', 0) == 0:
                                     if not g_obj_r.get('acquistato_a_gennaio') and not is_gen_rin:
                                         blocco_rinnovo = True
@@ -1040,8 +1028,7 @@ elif menu == "3. Mercato (Definitivi)":
                                         blocco_rinnovo = True
                                         msg_blocco = "Hai appena firmato questo giocatore in questa Sessione Invernale. Le regole non permettono un rinnovo istantaneo."
                                 
-                                # 2. NUOVO CONTROLLO: Anni rimanenti (Max 1 o 2 per rinnovare)
-                                if not blocco_rinnovo: # Lo esegue solo se non è già bloccato dal controllo sopra
+                                if not blocco_rinnovo: 
                                     anni_rimanenti = g_obj_r.get('anni_contratto', 1) - g_obj_r.get('anni_trascorsi', 0)
                                     if anni_rimanenti >= 3:
                                         blocco_rinnovo = True
@@ -1054,15 +1041,13 @@ elif menu == "3. Mercato (Definitivi)":
                                     
                                     nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 5)", 1, 5, 1, key="anni_rinnovo")
                                     
-                                    # LA RIGA MAGICA: Sottrae 0.5 se siamo a gennaio!
                                     anni_effettivi = nuovi_anni - 0.5 if is_gen_rin else nuovi_anni
-                                    
-                                    nuovo_stipendio = g_obj_r['stipendio'] * 1.15
+                                    # Applicato il nuovo incremento del 30% come da regolamento
+                                    nuovo_stipendio = g_obj_r['stipendio'] * 1.30 
                                     
                                     if is_gen_rin:
                                         st.info(f"❄️ **Rinnovo Invernale:** Impatto pro-quota. Durata effettiva {anni_effettivi} anni.")
                                         vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
-                                        # Usiamo anni_effettivi per calcolare l'ammortamento corretto!
                                         nuovo_amm = vr_a_gennaio / anni_effettivi if anni_effettivi > 0 else 0
                                     else:
                                         st.info("☀️ **Rinnovo Estivo:** Nuovo contratto applicato all'intera stagione.")
@@ -1070,7 +1055,6 @@ elif menu == "3. Mercato (Definitivi)":
                                         
                                     st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
                                     
-                                    # Bottone largo!
                                     if st.button("Conferma Rinnovo", type="primary", key="btn_conferma_rinnovo"):
                                         if is_gen_rin:
                                             g_obj_r['rinnovato_a_gennaio'] = True
@@ -1080,17 +1064,65 @@ elif menu == "3. Mercato (Definitivi)":
                                             
                                         g_obj_r['stipendio'] = nuovo_stipendio
                                         g_obj_r['costo_acquisto'] = g_obj_r['valore_residuo']
-                                        # Salviamo gli anni_effettivi e NON quelli dello slider nudo e crudo!
                                         g_obj_r['anni_contratto'] = anni_effettivi 
                                         g_obj_r['ammortamento_annuo'] = nuovo_amm
                                         g_obj_r['anni_trascorsi'] = 0
                                         
                                         save_data(db, DB_PATH)
-                                        log_evento(sq_sel, "🤝", f"ha prolungato il contratto di **{g_obj_r['nome']}** per altri {anni_effettivi} anno/i.")
+                                        log_evento(sq_rin_name, "🤝", f"ha prolungato il contratto di **{g_obj_r['nome']}** per altri {anni_effettivi} anno/i.")
                                         st.toast(f"Contratto di {g_obj_r['nome']} rinnovato!", icon="🤝")
                                         st.rerun()
                 else:
                     st.info("Nessun giocatore in rosa da rinnovare.")
+
+            # with t_bosman:
+            #     st.info("❄️ Disponibile esclusivamente per giocatori in scadenza a fine anno (1 anno residuo). Il cartellino passerà alla nuova società **a parametro zero** all'inizio del nuovo anno fiscale.")
+                
+            #     col_ced_b, col_acq_b = st.columns(2)
+            #     sq_ced_name_b = col_ced_b.selectbox("📤 Società Attuale", list(db.keys()), key="tab5_sq_ced")
+            #     sq_ced_b = db[sq_ced_name_b]
+                
+            #     sq_acq_name_b = col_acq_b.selectbox("📥 Nuova Società", [s for s in db.keys() if s != sq_ced_name_b], key="tab5_sq_acq")
+            #     sq_acq_b = db[sq_acq_name_b]
+                
+            #     # Filtra SOLO chi ha 1 anno residuo e non in prestito
+            #     giocatori_scadenza = []
+            #     for g in sq_ced_b['rosa']:
+            #         anni_res = g['anni_contratto'] - g.get('anni_trascorsi', 0)
+            #         if anni_res == 1 and not g.get('in_prestito_da') and "pre_contratto" not in g:
+            #             giocatori_scadenza.append(g)
+                
+            #     giocatori_scadenza = sorted(giocatori_scadenza, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
+                
+            #     if giocatori_scadenza:
+            #         with st.container(border=True):
+            #             indice_b = st.selectbox("Calciatore in Scadenza", options=range(len(giocatori_scadenza)), format_func=lambda i: f"{giocatori_scadenza[i]['nome']} ({giocatori_scadenza[i]['ruolo'][:3].upper()})")
+            #             g_obj_b = giocatori_scadenza[indice_b]
+                        
+            #             st.divider()
+            #             c1_b, c2_b = st.columns(2)
+            #             premio_firma = c1_b.number_input("💰 Premio alla Firma (Offerta alla Busta in MLN)", min_value=0.0, step=1.0)
+            #             nuovi_anni_b = c2_b.slider("Anni di Contratto Futuro", 1, 5, 3, key="anni_bosman")
+                        
+            #             s_base_bosman = 1.0 if premio_firma <= 15 else (2.5 if premio_firma <= 45 else (4.5 if premio_firma <= 85 else (7.0 if premio_firma <= 130 else 11.0)))
+            #             amm_bosman = premio_firma / nuovi_anni_b if nuovi_anni_b > 0 else premio_firma
+                        
+            #             st.warning(f"⏳ **Importante:** I soldi del premio non verranno scalati ora. A fine stagione, il **{sq_acq_name_b}** pagherà {premio_firma:.2f} M e il giocatore costerà a bilancio {amm_bosman:.2f} M di ammortamento e {s_base_bosman:.2f} M di stipendio annuo.")
+                        
+            #             if st.button("Firma Pre-Contratto", type="primary", key="btn_bosman"):
+            #                 g_obj_b['pre_contratto'] = {
+            #                     "squadra_futura": sq_acq_name_b,
+            #                     "premio_firma": premio_firma,
+            #                     "anni": nuovi_anni_b,
+            #                     "stipendio": s_base_bosman,
+            #                     "ammortamento_annuo": amm_bosman
+            #                 }
+            #                 save_data(db, DB_PATH)
+            #                 log_evento(sq_acq_name_b, "📝", f"ha depositato in Lega un pre-contratto per **{g_obj_b['nome']}** (attualmente tesserato al {sq_ced_name_b}). Il giocatore si trasferirà a parametro zero al termine della stagione!")
+            #                 st.toast(f"Accordo futuro blindato per {g_obj_b['nome']}!", icon="📝")
+            #                 st.rerun()
+            #     else:
+            #         st.info("Nessun giocatore in scadenza (1 anno residuo) in questa squadra, oppure hanno già tutti firmato un pre-contratto.")
 
 # ==========================================
 # 4. MERCATO (PRESTITI)
@@ -2242,7 +2274,8 @@ elif menu == "8. Chiusura Fiscale Bilancio":
             st.write("I contratti in scadenza verranno annullati, i prestiti riscattati e l'eventuale multa del Fair Play applicata alla Cassa. **L'operazione NON può essere annullata.**")
             
             if st.button("Sì, sono sicuro. Esegui Chiusura", type="primary", use_container_width=True):
-
+                
+                giocatori_in_arrivo_bosman = []
                 # --- 1. CICLO DI CHIUSURA SQUADRE ---
                 for sq, dati in db.items():
                     b = dati['bilancio']
@@ -2265,19 +2298,27 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     b['costi']['ammortamenti'] = round(tot_ammortamenti, 2)
                     b['costi']['monte_ingaggi'] = round(tot_ingaggi, 2)
                     
+                    # CATTURIAMO LA CASSA PRIMA E DOPO
+                    cassa_pre_stipendi = dati['cassa']
                     dati['cassa'] = round(dati['cassa'] - tot_ingaggi, 2)
+                    cassa_post_stipendi = dati['cassa']
+                    
                     utile = round(sum(b['ricavi'].values()) - sum(b['costi'].values()), 2)
                     
+                    multa_fpf = 0.0
                     if utile < 0:
                         multa_fpf = round(abs(utile) * 0.15, 2)
                         dati['cassa'] -= multa_fpf  
                         dati['bilancio']['storico_movimenti'].append(f"Multa Fair Play UEFA (15% della perdita di {utile}M): -{multa_fpf}M") 
                     
                     dati['ultimo_bilancio_chiuso'] = {
+                        "cassa_prima_stipendi": cassa_pre_stipendi,
+                        "cassa_dopo_stipendi": cassa_post_stipendi,
                         "ricavi": {k: round(v, 2) for k, v in dati['bilancio']['ricavi'].items()},
                         "costi": {k: round(v, 2) for k, v in dati['bilancio']['costi'].items()},
                         "utile": utile,
-                        "cassa_partenza_nuovo_anno": dati['cassa']
+                        "multa": multa_fpf,
+                        "cassa_partenza_nuovo_anno": round(dati['cassa'] + 70.0, 2) # Includiamo già i 70M in arrivo
                     }
                     
                     dati['bilancio'] = init_bilancio()
@@ -2368,9 +2409,39 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                             
                             if g['anni_trascorsi'] < g['anni_contratto']:
                                 nuova_rosa.append(g)
+                            else:
+                                # IL CONTRATTO SCADE. SE HA UN PRE-CONTRATTO, LO SALVIAMO IN VALIGIA!
+                                if "pre_contratto" in g:
+                                    giocatori_in_arrivo_bosman.append(g)
                     dati['rosa'] = nuova_rosa
                     dati["premi_campionato_dati"] = False
+                
+                # ========================================================
+                # 4. ESECUZIONE DEI PRE-CONTRATTI BOSMAN
+                # ========================================================
+                for gb in giocatori_in_arrivo_bosman:
+                    pc = gb['pre_contratto']
+                    sq_futura = pc['squadra_futura']
                     
+                    # Togliamo il premio alla firma dalla cassa della nuova squadra
+                    db[sq_futura]['cassa'] = round(db[sq_futura]['cassa'] - pc['premio_firma'], 2)
+                    db[sq_futura]['bilancio']['storico_movimenti'].append(f"Premio firma parametro zero ({gb['nome']}): -{pc['premio_firma']}M")
+                    
+                    # Creiamo il profilo nuovo fiammante e lo infiliamo in rosa
+                    nuovo_giocatore = {
+                        "nome": gb['nome'],
+                        "ruolo": gb['ruolo'],
+                        "costo_acquisto": pc['premio_firma'],
+                        "anni_contratto": pc['anni'],
+                        "stipendio": pc['stipendio'],
+                        "ammortamento_annuo": pc['ammortamento_annuo'],
+                        "anni_trascorsi": 0,
+                        "valore_residuo": pc['premio_firma'],
+                        "acquistato_a_gennaio": False
+                    }
+                    db[sq_futura]['rosa'].append(nuovo_giocatore)
+                    log_evento(sq_futura, "🤝", f"ha accolto ufficialmente in rosa **{gb['nome']}** a parametro zero. Spesa per il premio alla firma: {pc['premio_firma']} M.")
+
                 save_data(db, DB_PATH)
                 save_data([], CAL_PATH)
                 save_data(init_coppe(), COPPE_PATH)
@@ -2403,27 +2474,59 @@ elif menu == "8. Chiusura Fiscale Bilancio":
             tot_ricavi = sum(ub['ricavi'].values())
             tot_costi = sum(ub['costi'].values())
             
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Totale Ricavi", f"{tot_ricavi:.2f} M")
-            c2.metric("Totale Costi", f"{tot_costi:.2f} M")
-            c3.metric("Risultato (Utile/Perdita)", f"{ub['utile']:.2f} M", delta_color="normal" if ub['utile'] >= 0 else "inverse")
-            c4.metric("Cassa Iniziale Nuovo Anno", f"{ub['cassa_partenza_nuovo_anno']:.2f} M")
+            # Recuperiamo i dati (usando .get per retrocompatibilità in caso di vecchi salvataggi)
+            c_pre = ub.get('cassa_prima_stipendi', 0.0)
+            c_post = ub.get('cassa_dopo_stipendi', 0.0)
+            multa = ub.get('multa', 0.0)
+            utile = ub.get('utile', 0.0)
+            c_new = ub.get('cassa_partenza_nuovo_anno', 0.0)
             
+            # --- SEZIONE 1: FLUSSO DI CASSA ---
+            st.markdown("##### 1. Flusso di Cassa")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Cassa Pre-Stipendi", f"{c_pre:.2f} M")
+            col2.metric("Pagamento Monte Ingaggi", f"-{ub['costi'].get('monte_ingaggi', 0.0):.2f} M")
+            col3.metric("Cassa Post-Stipendi", f"{c_post:.2f} M")
+            
+            st.write("")
+            
+            # --- SEZIONE 2: BILANCIO D'ESERCIZIO ---
+            st.markdown("##### ⚖️ 2. Conto Economico (Bilancio)")
             col_ric, col_cost = st.columns(2)
             
             with col_ric:
-                st.markdown("#### 🟢 Dettaglio Ricavi")
+                html_ric = f"<div style='background-color: #F0FDF4; padding: 15px; border-radius: 8px; border: 1px solid #BBF7D0;'>"
+                html_ric += f"<h4 style='color: #166534; margin-top: 0;'>🟢 Totale Ricavi: {tot_ricavi:.2f} M</h4><hr style='border-color: #BBF7D0;'>"
                 for k, v in ub['ricavi'].items():
                     if v > 0: 
-                        nome_voce = k.replace('_', ' ').title()
-                        st.write(f"- **{nome_voce}**: {v:.2f} M")
+                        html_ric += f"<div style='display: flex; justify-content: space-between; margin-bottom: 5px;'><span style='color: #166534;'>{k.replace('_', ' ').title()}</span> <strong>{v:.2f} M</strong></div>"
+                html_ric += "</div>"
+                st.markdown(html_ric, unsafe_allow_html=True)
                         
             with col_cost:
-                st.markdown("#### 🔴 Dettaglio Costi")
+                html_cost = f"<div style='background-color: #FEF2F2; padding: 15px; border-radius: 8px; border: 1px solid #FECACA;'>"
+                html_cost += f"<h4 style='color: #991B1B; margin-top: 0;'>🔴 Totale Costi: {tot_costi:.2f} M</h4><hr style='border-color: #FECACA;'>"
                 for k, v in ub['costi'].items():
                     if v > 0: 
-                        nome_voce = k.replace('_', ' ').title()
-                        st.write(f"- **{nome_voce}**: {v:.2f} M")
+                        html_cost += f"<div style='display: flex; justify-content: space-between; margin-bottom: 5px;'><span style='color: #991B1B;'>{k.replace('_', ' ').title()}</span> <strong>{v:.2f} M</strong></div>"
+                html_cost += "</div>"
+                st.markdown(html_cost, unsafe_allow_html=True)
+
+            st.write("")
+
+            # --- SEZIONE 3: RISULTATO E NUOVO ANNO ---
+            st.markdown("##### 🏛️ 3. Fair Play Finanziario e Nuovo Anno")
+            col_u, col_m, col_f = st.columns(3)
+            
+            col_u.metric("Risultato d'Esercizio", f"{utile:.2f} M", delta="In Utile" if utile >= 0 else "In Perdita", delta_color="normal" if utile >= 0 else "inverse")
+            
+            if utile < 0:
+                col_m.metric("🚨 Multa FPF Pagata (15%)", f"-{multa:.2f} M")
+            else:
+                col_m.metric("✅ Multa FPF", "Nessuna sanzione")
+                
+            col_f.metric("Cassa Iniziale Nuova Stagione", f"{c_new:.2f} M", delta="+70.0M Nuovi Capitali Lega", delta_color="normal")
+            
         else:
             st.info("Questa squadra non ha ancora chiuso un bilancio aziendale.")
     else:
