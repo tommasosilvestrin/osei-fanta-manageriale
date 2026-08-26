@@ -388,7 +388,7 @@ if menu == "1. Setup Società":
                 st.markdown(f"- 🥇 {sq_dati['sponsor']['obiettivi']['oro']} (30M)")
             else:
                 with st.container(border=True):
-                    st.write("La firma garantisce un introito base di **30 Milioni** istantanei. I premi degli obiettivi verranno erogati a fine anno.")
+                    st.write("La firma garantisce un introito base di **30 Milioni** istantanei. I premi degli obiettivi verranno erogati successivamente.")
                     ns = st.text_input("Nome del Main Sponsor")
                     
                     st.write("Scegli un obiettivo per categoria. **Non puoi ripetere la stessa tipologia (Piazzamento, Vittorie, Coppe/Gol)**.")
@@ -796,7 +796,7 @@ elif menu == "3. Mercato (Definitivi)":
                     else:
                         st.info(f"💡 Dati Contratto: Stipendio {s_base}M | Ammortamento {amm:.2f}M annui.")
                     
-                    if st.button("Conferma Acquisto da Asta", type="primary"):
+                    if st.button("Conferma Acquisto", type="primary"):
                         if c > sq_acq['cassa']: 
                             st.error("Cassa insufficiente!")
                         elif not n:
