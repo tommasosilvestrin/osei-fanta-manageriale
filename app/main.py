@@ -432,7 +432,7 @@ if menu == "1. Setup Società":
                                 sq_dati['bilancio']['storico_movimenti'].append(f"Base Fissa Sponsor: +30.0M")
                             
                             save_data(db, DB_PATH)
-                            log_evento(sq_sel, "💼", f"ha firmato con **{ns}**. Punta all'obiettivo Oro: *{scelta_or.split(' (')[0]}*.")
+                            log_evento(sq_sel, "💼", f"ha firmato con **{ns}**.")
                             st.toast(f"Sponsor {ns} firmato! 30 Milioni di base accreditati.", icon="💼")
                             st.rerun()
                         else:
@@ -732,24 +732,24 @@ elif menu == "2. Dashboard & Rosa":
             st.markdown(html_voci, unsafe_allow_html=True)
                 
             # WIDGET 3: Opportunità di Spalmatura
-            st.markdown("##### ⏳ Opportunità di Rinnovo")
-            if opportunita_rinnovo:
-                opportunita_ordinate = sorted(opportunita_rinnovo, key=lambda x: x['risparmio'], reverse=True)[:3]
+            # st.markdown("##### ⏳ Opportunità di Rinnovo")
+            # if opportunita_rinnovo:
+            #     opportunita_ordinate = sorted(opportunita_rinnovo, key=lambda x: x['risparmio'], reverse=True)[:3]
                 
-                html_opp = "<div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px;'>"
-                html_opp += "<div style='color: #64748B; margin-bottom: 10px; font-size: 12px;'>Spalmando il contratto a 3 anni risparmi:</div>"
+            #     html_opp = "<div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px;'>"
+            #     html_opp += "<div style='color: #64748B; margin-bottom: 10px; font-size: 12px;'>Spalmando il contratto a 3 anni risparmi:</div>"
                 
-                for g in opportunita_ordinate:
-                    anni_testo = "anno" if g['anni_res'] == 1 else "anni"
-                    html_opp += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #E2E8F0; padding-bottom: 5px;'>"
-                    html_opp += f"<strong>{g['nome']}</strong> <span style='font-size: 11px; color: #94A3B8;'>(Scade tra {g['anni_res']} {anni_testo})</span><br>"
-                    html_opp += f"<span style='color: #10B981; font-weight: bold;'>✨ +{g['risparmio']:.2f} M</span> a bilancio"
-                    html_opp += "</div>"
+            #     for g in opportunita_ordinate:
+            #         anni_testo = "anno" if g['anni_res'] == 1 else "anni"
+            #         html_opp += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #E2E8F0; padding-bottom: 5px;'>"
+            #         html_opp += f"<strong>{g['nome']}</strong> <span style='font-size: 11px; color: #94A3B8;'>(Scade tra {g['anni_res']} {anni_testo})</span><br>"
+            #         html_opp += f"<span style='color: #10B981; font-weight: bold;'>✨ +{g['risparmio']:.2f} M</span> a bilancio"
+            #         html_opp += "</div>"
                 
-                html_opp += "</div>"
-                st.markdown(html_opp, unsafe_allow_html=True)
-            else:
-                st.info("Nessuna opzione vantaggiosa.")
+            #     html_opp += "</div>"
+            #     st.markdown(html_opp, unsafe_allow_html=True)
+            # else:
+            #     st.info("Nessuna opzione vantaggiosa.")
 
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
@@ -2528,7 +2528,7 @@ elif menu == "8. Chiusura Fiscale Bilancio":
             col_f.metric("Cassa Iniziale Nuova Stagione", f"{c_new:.2f} M", delta="+70.0M Nuovi Capitali Lega", delta_color="normal")
             
         else:
-            st.info("Questa squadra non ha ancora chiuso un bilancio aziendale.")
+            st.info("Questa squadra non ha ancora chiuso un bilancio.")
     else:
         st.info("Nessuno storico disponibile. Esegui la chiusura fiscale a fine stagione per generare i prospetti.")
 
