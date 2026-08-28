@@ -1365,36 +1365,36 @@ elif menu == "5. Calendario & Partite":
                 #####################################################################################
                 # BLOCCO PER TEST
                 #####################################################################################
-                if st.session_state.is_admin:
-                    if st.button("🎲 Simula tutto il Campionato in un colpo solo", type="primary"):
-                        import random
-                        for giornata_idx, giornata_dati in enumerate(calendario):
-                            for match in giornata_dati:
-                                if not match.get("giocata", False):
-                                    # Genera gol realistici (con un leggero vantaggio per chi gioca in casa)
-                                    gh = random.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 8, 2])[0]
-                                    ga = random.choices([0, 1, 2, 3, 4, 5], weights=[30, 35, 20, 10, 4, 1])[0]
+                # if st.session_state.is_admin:
+                #     if st.button("🎲 Simula tutto il Campionato in un colpo solo", type="primary"):
+                #         import random
+                #         for giornata_idx, giornata_dati in enumerate(calendario):
+                #             for match in giornata_dati:
+                #                 if not match.get("giocata", False):
+                #                     # Genera gol realistici (con un leggero vantaggio per chi gioca in casa)
+                #                     gh = random.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 8, 2])[0]
+                #                     ga = random.choices([0, 1, 2, 3, 4, 5], weights=[30, 35, 20, 10, 4, 1])[0]
                                     
-                                    match["gol_home"] = gh
-                                    match["gol_away"] = ga
-                                    match["giocata"] = True
+                #                     match["gol_home"] = gh
+                #                     match["gol_away"] = ga
+                #                     match["giocata"] = True
                                     
-                                    # # ASSEGNAZIONE INCASSI AUTOMATICA
-                                    # if not match.get("incassi_assegnati", False):
-                                    #     h_team = db[match["home"]]
-                                    #     if h_team['stadio']['livello']:
-                                    #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
-                                    #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
-                                    #         h_team['cassa'] = round(h_team['cassa'] + incasso, 2)
-                                    #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
-                                    #     match["incassi_assegnati"] = True
+                #                     # # ASSEGNAZIONE INCASSI AUTOMATICA
+                #                     # if not match.get("incassi_assegnati", False):
+                #                     #     h_team = db[match["home"]]
+                #                     #     if h_team['stadio']['livello']:
+                #                     #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
+                #                     #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
+                #                     #         h_team['cassa'] = round(h_team['cassa'] + incasso, 2)
+                #                     #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
+                #                     #     match["incassi_assegnati"] = True
                         
-                        save_data(db, DB_PATH)
-                        save_data(calendario, CAL_PATH)
-                        verifica_obiettivi_dinamici()
-                        log_evento("Lega", "🎲", "L'Amministratore ha simulato l'intero Campionato!")
-                        st.success("Simulazione completata! Tutti i risultati sono stati generati e gli incassi versati.")
-                        st.rerun()
+                #         save_data(db, DB_PATH)
+                #         save_data(calendario, CAL_PATH)
+                #         verifica_obiettivi_dinamici()
+                #         log_evento("Lega", "🎲", "L'Amministratore ha simulato l'intero Campionato!")
+                #         st.success("Simulazione completata! Tutti i risultati sono stati generati e gli incassi versati.")
+                #         st.rerun()
                         
                 #####################################################################################
                 # FINE BLOCCO PER TEST
