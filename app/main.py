@@ -277,9 +277,54 @@ if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)", "8. Chiusura Fi
 ultimi_movimenti = []
 for nome_sq, dati_sq in db.items():
     if dati_sq['bilancio'].get('storico_movimenti'):
-        # Prende l'ultimo movimento della squadra e ci attacca il nome
         ultimo = dati_sq['bilancio']['storico_movimenti'][-1]
         ultimi_movimenti.append(f"**{nome_sq}**: {ultimo}")
+
+# ==========================================
+# --- TICKER NOTIZIE TIPO SKY SPORT 24 ---
+# ==========================================
+feed_notizie = load_feed()
+ticker_elements = []
+
+# 1. Recupero Ultimi Risultati (Cerca l'ultima giornata giocata)
+if calendario:
+    last_played_idx = -1
+    for idx, md in enumerate(calendario):
+        if md and md[0].get("giocata", False):
+            last_played_idx = idx
+    
+    if last_played_idx >= 0:
+        risultati = [f"{m['home']} {m['gol_home']}-{m['gol_away']} {m['away']}" for m in calendario[last_played_idx]]
+        stringa_risultati = f"⚽ RISULTATI G. {last_played_idx + 1}: " + " ▪ ".join(risultati)
+        ticker_elements.append(stringa_risultati)
+
+# 2. Recupero Ultime 5 Operazioni di Mercato dal Feed
+if feed_notizie:
+    notizie_mercato = []
+    for item in feed_notizie[:5]: # Prende solo le prime 5
+        testo_pulito = item['testo'].replace('**', '') # Toglie il grassetto per il ticker
+        notizie_mercato.append(f"{item['icona']} {item['squadra'].upper()}: {testo_pulito}")
+    stringa_mercato = "📰 ULTIM'ORA MERCATO: " + " ▪ ".join(notizie_mercato)
+    ticker_elements.append(stringa_mercato)
+
+# Uniamo le stringhe con uno spaziatore elegante
+ticker_text = " &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ".join(ticker_elements)
+
+# Se è tutto vuoto (inizio gioco), mettiamo un messaggio di benvenuto
+if not ticker_text:
+    ticker_text = "Benvenuti nella Osei Football League! Il mercato è ufficialmente aperto. L'asta sta per cominciare..."
+
+# Disegniamo la barra in stile SkySport24
+st.markdown(f"""
+<div style="background-color: #0F172A; color: #F8FAFC; padding: 6px 15px; border-bottom: 3px solid #EF4444; border-top: 1px solid #334155; display: flex; align-items: center; margin-bottom: 25px; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <div style="background-color: #EF4444; color: white; font-weight: bold; padding: 2px 10px; border-radius: 4px; margin-right: 15px; font-size: 13px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+        OFL NEWS 24
+    </div>
+    <marquee behavior="scroll" direction="left" scrollamount="6" style="font-size: 14px; font-weight: 500; font-family: monospace;">
+        {ticker_text}
+    </marquee>
+</div>
+""", unsafe_allow_html=True)
 
 # ==========================================
 # 1. SETUP SOCIETÀ
@@ -763,10 +808,28 @@ elif menu == "3. Mercato (Definitivi)":
         if not db: 
             st.warning("Crea una squadra.")
         else:
+            # --- TABELLONE LIVE CASSE E ROSTER ---
+            with st.expander("📊 TABELLONE CASSE LIVE (Clicca per espandere)", expanded=True):
+                colonne = st.columns(4)
+                for i, (nome_team, dati_team) in enumerate(db.items()):
+                    cassa_team = dati_team['cassa']
+                    slot_team = 25 - len(dati_team['rosa'])
+                    # Calcolo offerta massima (devi avere almeno 1M per ogni slot vuoto)
+                    offerta_max = cassa_team - slot_team + 1 if slot_team > 0 else 0
+                    
+                    # Scriviamo i dati nella colonna (4 per riga)
+                    colonne[i % 4].markdown(f"""
+                    <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px; border-radius: 8px; margin-bottom: 10px;'>
+                        <div style='font-size: 13px; font-weight: bold; color: #334155;'>{nome_team}</div>
+                        <div style='font-size: 18px; color: #2563EB; font-weight: bold;'>{cassa_team:.2f} M</div>
+                        <div style='font-size: 11px; color: #64748B;'>Offerta massima: <b style='color: #EF4444;'>{offerta_max:.2f} M</b> | Slot rimanenti: {slot_team}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
             # Ordine ruoli fisso per tutti
             ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
 
-            t_acq, t_trasf, t_svin, t_rin = st.tabs(["Asta", "Trasferimenti", "Svincola", "Rinnovo"])
+            t_acq, t_trasf, t_svin, t_rin = st.tabs(["Asta", "Trasferimento", "Svincolo", "Rinnovo"])
             
             # --- TAB 1: ACQUISTA (Dall'asta o svincolati) ---
             with t_acq:
@@ -808,8 +871,12 @@ elif menu == "3. Mercato (Definitivi)":
                             sq_acq['bilancio']['storico_movimenti'].append(f"Acquisto {n}: -{c}M")
                             save_data(db, DB_PATH)
                             log_evento(sq_acq_name, "✍️", f"ha acquistato **{n}** per **{c} M** ({anni_effettivi} anni di contratto).")
-                            st.toast(f"Contratto firmato! {n} è un tuo giocatore.", icon="✍️")
+                            st.session_state.msg_acq = f"✍️ Contratto firmato! {n} è un nuovo giocatore del {sq_acq_name}."
                             st.rerun()
+
+                    if "msg_acq" in st.session_state:
+                        st.success(st.session_state.msg_acq)
+                        del st.session_state.msg_acq
 
             # --- TAB 2: TRASFERIMENTI (Tra società) ---
             with t_trasf:
@@ -933,8 +1000,12 @@ elif menu == "3. Mercato (Definitivi)":
                                             
                                             save_data(db, DB_PATH)
                                             log_evento(sq_ced_name, "🤝", f"ha ceduto a titolo definitivo **{g_obj['nome']}** al **{sq_comp_name}** per **{prezzo_v} M**.")
-                                            st.toast(f"Trasferimento completato con successo!", icon="🤝")
+                                            st.session_state.msg_trasf = f"🤝 Trasferimento completato: {g_obj['nome']} è passato al {sq_comp_name}!"
                                             st.rerun()
+
+                                    if "msg_trasf" in st.session_state:
+                                        st.success(st.session_state.msg_trasf)
+                                        del st.session_state.msg_trasf
                     else:
                         st.info("Nessun giocatore in rosa da trasferire.")
 
@@ -983,8 +1054,12 @@ elif menu == "3. Mercato (Definitivi)":
                                     sq_svin['rosa'].remove(g_obj_s)
                                     save_data(db, DB_PATH)
                                     log_evento(sq_svin_name, "📄", f"ha rescisso il contratto di **{g_obj_s['nome']}**.")
-                                    st.toast(f"{g_obj_s['nome']} è stato svincolato.", icon="📄")
+                                    st.session_state.msg_svin = f"📄 {g_obj_s['nome']} è stato svincolato correttamente."
                                     st.rerun()
+
+                                if "msg_svin" in st.session_state:
+                                    st.success(st.session_state.msg_svin)
+                                    del st.session_state.msg_svin
                 else:
                     st.info("Nessun giocatore in rosa da svincolare.")
                         
@@ -1070,8 +1145,12 @@ elif menu == "3. Mercato (Definitivi)":
                                         
                                         save_data(db, DB_PATH)
                                         log_evento(sq_rin_name, "🤝", f"ha prolungato il contratto di **{g_obj_r['nome']}** per altri {anni_effettivi} anno/i.")
-                                        st.toast(f"Contratto di {g_obj_r['nome']} rinnovato!", icon="🤝")
+                                        st.session_state.msg_rin = f"🤝 Contratto di {g_obj_r['nome']} rinnovato con successo!"
                                         st.rerun()
+
+                                    if "msg_rin" in st.session_state:
+                                        st.success(st.session_state.msg_rin)
+                                        del st.session_state.msg_rin
                 else:
                     st.info("Nessun giocatore in rosa da rinnovare.")
 
@@ -1253,8 +1332,12 @@ elif menu == "4. Mercato (Prestiti)":
                                 
                             save_data(db, DB_PATH)
                             log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
-                            st.toast(f"Prestito registrato!", icon="🧳")
+                            st.session_state.msg_prestito = f"🤝 Prestito di {g_obj['nome']} registrato con successo!"
                             st.rerun()
+                    
+                    if "msg_prestito" in st.session_state:
+                        st.success(st.session_state.msg_prestito)
+                        del st.session_state.msg_prestito
                         
             st.divider()
             st.subheader("🛒 Esercita Riscatto")
@@ -1284,8 +1367,12 @@ elif menu == "4. Mercato (Prestiti)":
                         g_ced_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
                         save_data(db, DB_PATH)
                         log_evento(sq_cedente, "💰", f"ha ufficializzato il riscatto di **{g_riscatto}** al **{sq_acquirente}** per **{prezzo_r} M**.")
-                        st.toast(f"Riscatto di {g_riscatto} prenotato per fine anno!", icon="⏳")
+                        st.session_state.msg_riscatto = f"💰 Riscatto di {g_riscatto} prenotato correttamente!"
                         st.rerun()
+                        
+                    if "msg_riscatto" in st.session_state:
+                        st.success(st.session_state.msg_riscatto)
+                        del st.session_state.msg_riscatto
 
             st.divider()
             st.subheader("❌ Risoluzione Anticipata Prestito")
@@ -1305,8 +1392,12 @@ elif menu == "4. Mercato (Prestiti)":
                         
                     save_data(db, DB_PATH)
                     log_evento(sq_cedente, "🔙", f"ha richiamato **{g_risoluzione}** dal prestito. Il giocatore lascia il **{sq_acquirente}**.")
-                    st.toast(f"Accordo interrotto. {g_risoluzione} torna alla base.", icon="🔙")
+                    st.session_state.msg_risoluzione = f"🔙 Prestito di {g_risoluzione} interrotto correttamente!"
                     st.rerun()
+                    
+                if "msg_risoluzione" in st.session_state:
+                    st.success(st.session_state.msg_risoluzione)
+                    del st.session_state.msg_risoluzione
             else:
                 st.write("Nessun giocatore in prestito tra queste due squadre.")
 
@@ -2270,7 +2361,7 @@ elif menu == "8. Chiusura Fiscale Bilancio":
         # --- LA CHICCA: DEFINIAMO IL POPUP (DIALOG) ---
         @st.dialog("⚠️ CONFERMA CHIUSURA IRREVERSIBILE")
         def popup_conferma_chiusura():
-            st.error("Stai per chiudere definitivamente l'anno fiscale di **tutte** le squadre.")
+            st.error("Stai per chiudere definitivamente l'anno fiscale di tutte le squadre.")
             st.write("I contratti in scadenza verranno annullati, i prestiti riscattati e l'eventuale multa del Fair Play applicata alla Cassa. **L'operazione NON può essere annullata.**")
             
             if st.button("Sì, sono sicuro. Esegui Chiusura", type="primary", use_container_width=True):
