@@ -129,12 +129,18 @@ def genera_calendario_berger(squadre_lista, num_giornate):
     for i in range(n - 1):
         matchday = []
         for j in range(n // 2):
-            home = squadre[j]
-            away = squadre[n - 1 - j]
-            if j == 0 and i % 2 == 1:
-                home, away = away, home 
+            # LA MAGIA È QUI: Inversione dei campi calcolata matematicamente
+            if j % 2 == 1 or (i % 2 == 1 and j == 0):
+                home = squadre[n - 1 - j]
+                away = squadre[j]
+            else:
+                home = squadre[j]
+                away = squadre[n - 1 - j]
+                
             matchday.append({"home": home, "away": away, "gol_home": 0, "gol_away": 0, "giocata": False, "incassi_assegnati": False})
         matchdays.append(matchday)
+        
+        # Rotazione di Berger: il primo resta fisso, l'ultimo va in seconda posizione
         squadre.insert(1, squadre.pop())
         
     # Costruisce il calendario fino al numero esatto di giornate richiesto
@@ -145,7 +151,7 @@ def genera_calendario_berger(squadre_lista, num_giornate):
             if len(full_calendar) < num_giornate:
                 new_md = []
                 for match in md:
-                    # Inverte casa/trasferta a ogni nuovo girone
+                    # Inverte casa/trasferta a ogni nuovo girone (andata/ritorno)
                     if round_num % 2 == 1: 
                         new_md.append({"home": match["away"], "away": match["home"], "gol_home": 0, "gol_away": 0, "giocata": False, "incassi_assegnati": False})
                     else: 
