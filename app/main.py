@@ -758,25 +758,7 @@ elif menu == "3. Mercato (Definitivi)":
     else:
         if not db: 
             st.warning("Crea una squadra.")
-        else:
-            # --- TABELLONE LIVE CASSE E ROSTER ---
-            with st.expander("📊 TABELLONE CASSE LIVE (Clicca per espandere)", expanded=True):
-                colonne = st.columns(4)
-                for i, (nome_team, dati_team) in enumerate(db.items()):
-                    cassa_team = dati_team['cassa']
-                    slot_team = 25 - len(dati_team['rosa'])
-                    # Calcolo offerta massima (devi avere almeno 1M per ogni slot vuoto)
-                    offerta_max = cassa_team - slot_team + 1 if slot_team > 0 else 0
-                    
-                    # Scriviamo i dati nella colonna (4 per riga)
-                    colonne[i % 4].markdown(f"""
-                    <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px; border-radius: 8px; margin-bottom: 10px;'>
-                        <div style='font-size: 13px; font-weight: bold; color: #334155;'>{nome_team}</div>
-                        <div style='font-size: 18px; color: #2563EB; font-weight: bold;'>{cassa_team:.2f} M</div>
-                        <div style='font-size: 11px; color: #64748B;'>Offerta massima: <b style='color: #EF4444;'>{offerta_max:.2f} M</b> | Slot rimanenti: {slot_team}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
+        else:            
             # Ordine ruoli fisso per tutti
             ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
 
