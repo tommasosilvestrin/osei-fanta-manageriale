@@ -10,17 +10,13 @@ import os
 import re
 from datetime import datetime, timedelta
 
-FEED_PATH = "feed_lega.json"
-
 def load_feed():
-    if os.path.exists(FEED_PATH):
-        with open(FEED_PATH, "r") as f:
-            return json.load(f)
-    return []
+    # Ora peschiamo le notizie direttamente dal database cloud (Firestore)
+    return load_data("feed_notizie")
 
 def save_feed(data):
-    with open(FEED_PATH, "w") as f:
-        json.dump(data, f, indent=4)
+    # Salviamo le notizie al sicuro su Firestore
+    save_data(data, "feed_notizie")
 
 def log_evento(nome_squadra, icona, testo):
     feed = load_feed()
