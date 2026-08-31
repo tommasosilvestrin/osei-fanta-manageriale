@@ -96,15 +96,22 @@ def init_bilancio():
         "ricavi": {"nuovo_capitale": 0.0, 
                    "premi_sportivi": 0.0,
                    "sponsor": 0.0,
-                   # "incassi_stadio": 0.0,
+                   "incassi_stadio": 0.0,
                    "plusvalenze": 0.0},
         "costi": {"ammortamenti": 0.0,
                   "monte_ingaggi": 0.0,
-                  # "gestione_stadio": 0.0,
                   "minusvalenze": 0.0,
                   "costi_giocatori_ceduti": 0.0},
         "storico_movimenti": []
     }
+
+# --- NUOVA FUNZIONE AUTOMATICA PER GLI INCASSI ---
+def assegna_incasso_stadio(nome_squadra, database, competizione, incasso_mln=1.0):
+    """Versa l'incasso fisso alla squadra di casa e lo segna nello storico."""
+    if nome_squadra in database:
+        database[nome_squadra]['bilancio']['ricavi']['incassi_stadio'] += incasso_mln
+        database[nome_squadra]['cassa'] = round(database[nome_squadra]['cassa'] + incasso_mln, 2)
+        database[nome_squadra]['bilancio']['storico_movimenti'].append(f"Botteghino ({competizione}): +{incasso_mln}M")
 
 def init_coppe():
     return {
@@ -263,6 +270,8 @@ if menu != "9. Regolamento Ufficiale":
     for sq in db.values():
         if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
             sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
+        if "incassi_stadio" not in sq["bilancio"]["ricavi"]:
+            sq["bilancio"]["ricavi"]["incassi_stadio"] = 0.0
 
 # Scarica il CALENDARIO
 if menu in ["5. Calendario & Partite", "6. Classifica Campionato", "8. Chiusura Fiscale Bilancio"]:
@@ -343,7 +352,6 @@ if menu == "1. Setup Società":
                 if nome and mister and nome not in db:
                     db[nome] = {
                         "allenatore": mister, "cassa": 500.0,
-                        # "stadio": {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0},
                         "sponsor": {"nome": None, "valore": 0},
                         "rosa": [], "bilancio": init_bilancio()
                     }
@@ -357,39 +365,6 @@ if menu == "1. Setup Società":
             sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
             sq_dati = db[sq_sel]
             
-            # col1, col2 = st.columns(2)
-            
-            # with col1:
-            #     st.subheader("Stadio")
-            #     # CONTROLLO: Se lo stadio è già stato scelto, nasconde il menu e mostra l'info
-            #     if sq_dati["stadio"].get("livello"):
-            #         st.info(f"✅ **Stadio Confermato:** Impianto da {sq_dati['stadio']['livello']} posti.")
-            #     else:
-            #         stadi = {
-            #             "Categoria 1 (20.000 posti) - 7M Costo": {"livello": "20k", "costo": 7.0, "base": 0.2, "pari": 0.3, "vittoria": 0.6},
-            #             "Categoria 2 (50.000 posti) - 17M Costo": {"livello": "50k", "costo": 17.0, "base": 0.4, "pari": 0.7, "vittoria": 1.3},
-            #             "Categoria 3 (80.000 posti) - 28M Costo": {"livello": "80k", "costo": 28.0, "base": 0.8, "pari": 1.4, "vittoria": 2.1}
-            #         }
-            #         scelta = st.selectbox("Livello Stadio", list(stadi.keys()))
-            #         if st.button("Firma Contratto Stadio"):
-            #             costo_nuovo = stadi[scelta]["costo"]
-            #             costo_vecchio = sq_dati["bilancio"]["costi"]["gestione_stadio"]
-                        
-            #             # Rimborsa l'eventuale stadio vecchio (se sta cambiando idea) e addebita il nuovo
-            #             sq_dati["cassa"] = round(sq_dati["cassa"] + costo_vecchio - costo_nuovo, 2)
-                        
-            #             sq_dati["stadio"] = stadi[scelta]
-            #             sq_dati["bilancio"]["costi"]["gestione_stadio"] = costo_nuovo
-                        
-            #             if costo_vecchio == 0:
-            #                 sq_dati['bilancio']['storico_movimenti'].append(f"Affitto Stadio ({stadi[scelta]['livello']}): -{costo_nuovo}M")
-                        
-            #             save_data(db, DB_PATH)
-            #             log_evento(sq_sel, "🏟️", f"ha ufficializzato il nuovo stadio ({stadi[scelta]['livello']}).")
-            #             st.toast(f"Stadio firmato! Pagato l'affitto annuale di {costo_nuovo}M.", icon="🏟️")
-            #             st.rerun() # Ricarica istantaneamente la pagina per mostrare il blocco ✅
-
-            # with col2:
             st.subheader("💼 Gestione Sponsor e Obiettivi")
 
             # Liste degli obiettivi esatti
@@ -775,26 +750,6 @@ elif menu == "2. Dashboard & Rosa":
             
             html_voci += "</div>"
             st.markdown(html_voci, unsafe_allow_html=True)
-                
-            # WIDGET 3: Opportunità di Spalmatura
-            # st.markdown("##### ⏳ Opportunità di Rinnovo")
-            # if opportunita_rinnovo:
-            #     opportunita_ordinate = sorted(opportunita_rinnovo, key=lambda x: x['risparmio'], reverse=True)[:3]
-                
-            #     html_opp = "<div style='background-color: white; border-radius: 12px; padding: 20px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.03); font-size: 14px;'>"
-            #     html_opp += "<div style='color: #64748B; margin-bottom: 10px; font-size: 12px;'>Spalmando il contratto a 3 anni risparmi:</div>"
-                
-            #     for g in opportunita_ordinate:
-            #         anni_testo = "anno" if g['anni_res'] == 1 else "anni"
-            #         html_opp += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #E2E8F0; padding-bottom: 5px;'>"
-            #         html_opp += f"<strong>{g['nome']}</strong> <span style='font-size: 11px; color: #94A3B8;'>(Scade tra {g['anni_res']} {anni_testo})</span><br>"
-            #         html_opp += f"<span style='color: #10B981; font-weight: bold;'>✨ +{g['risparmio']:.2f} M</span> a bilancio"
-            #         html_opp += "</div>"
-                
-            #     html_opp += "</div>"
-            #     st.markdown(html_opp, unsafe_allow_html=True)
-            # else:
-            #     st.info("Nessuna opzione vantaggiosa.")
 
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
@@ -1154,55 +1109,6 @@ elif menu == "3. Mercato (Definitivi)":
                 else:
                     st.info("Nessun giocatore in rosa da rinnovare.")
 
-            # with t_bosman:
-            #     st.info("❄️ Disponibile esclusivamente per giocatori in scadenza a fine anno (1 anno residuo). Il cartellino passerà alla nuova società **a parametro zero** all'inizio del nuovo anno fiscale.")
-                
-            #     col_ced_b, col_acq_b = st.columns(2)
-            #     sq_ced_name_b = col_ced_b.selectbox("📤 Società Attuale", list(db.keys()), key="tab5_sq_ced")
-            #     sq_ced_b = db[sq_ced_name_b]
-                
-            #     sq_acq_name_b = col_acq_b.selectbox("📥 Nuova Società", [s for s in db.keys() if s != sq_ced_name_b], key="tab5_sq_acq")
-            #     sq_acq_b = db[sq_acq_name_b]
-                
-            #     # Filtra SOLO chi ha 1 anno residuo e non in prestito
-            #     giocatori_scadenza = []
-            #     for g in sq_ced_b['rosa']:
-            #         anni_res = g['anni_contratto'] - g.get('anni_trascorsi', 0)
-            #         if anni_res == 1 and not g.get('in_prestito_da') and "pre_contratto" not in g:
-            #             giocatori_scadenza.append(g)
-                
-            #     giocatori_scadenza = sorted(giocatori_scadenza, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
-                
-            #     if giocatori_scadenza:
-            #         with st.container(border=True):
-            #             indice_b = st.selectbox("Calciatore in Scadenza", options=range(len(giocatori_scadenza)), format_func=lambda i: f"{giocatori_scadenza[i]['nome']} ({giocatori_scadenza[i]['ruolo'][:3].upper()})")
-            #             g_obj_b = giocatori_scadenza[indice_b]
-                        
-            #             st.divider()
-            #             c1_b, c2_b = st.columns(2)
-            #             premio_firma = c1_b.number_input("💰 Premio alla Firma (Offerta alla Busta in MLN)", min_value=0.0, step=1.0)
-            #             nuovi_anni_b = c2_b.slider("Anni di Contratto Futuro", 1, 5, 3, key="anni_bosman")
-                        
-            #             s_base_bosman = 1.0 if premio_firma <= 15 else (2.5 if premio_firma <= 45 else (4.5 if premio_firma <= 85 else (7.0 if premio_firma <= 130 else 11.0)))
-            #             amm_bosman = premio_firma / nuovi_anni_b if nuovi_anni_b > 0 else premio_firma
-                        
-            #             st.warning(f"⏳ **Importante:** I soldi del premio non verranno scalati ora. A fine stagione, il **{sq_acq_name_b}** pagherà {premio_firma:.2f} M e il giocatore costerà a bilancio {amm_bosman:.2f} M di ammortamento e {s_base_bosman:.2f} M di stipendio annuo.")
-                        
-            #             if st.button("Firma Pre-Contratto", type="primary", key="btn_bosman"):
-            #                 g_obj_b['pre_contratto'] = {
-            #                     "squadra_futura": sq_acq_name_b,
-            #                     "premio_firma": premio_firma,
-            #                     "anni": nuovi_anni_b,
-            #                     "stipendio": s_base_bosman,
-            #                     "ammortamento_annuo": amm_bosman
-            #                 }
-            #                 save_data(db, DB_PATH)
-            #                 log_evento(sq_acq_name_b, "📝", f"ha depositato in Lega un pre-contratto per **{g_obj_b['nome']}** (attualmente tesserato al {sq_ced_name_b}). Il giocatore si trasferirà a parametro zero al termine della stagione!")
-            #                 st.toast(f"Accordo futuro blindato per {g_obj_b['nome']}!", icon="📝")
-            #                 st.rerun()
-            #     else:
-            #         st.info("Nessun giocatore in scadenza (1 anno residuo) in questa squadra, oppure hanno già tutti firmato un pre-contratto.")
-
 # ==========================================
 # 4. MERCATO (PRESTITI)
 # ==========================================
@@ -1452,44 +1358,6 @@ elif menu == "5. Calendario & Partite":
                     st.rerun()
             
             if calendario:
-
-                #####################################################################################
-                # BLOCCO PER TEST
-                #####################################################################################
-                # if st.session_state.is_admin:
-                #     if st.button("🎲 Simula tutto il Campionato in un colpo solo", type="primary"):
-                #         import random
-                #         for giornata_idx, giornata_dati in enumerate(calendario):
-                #             for match in giornata_dati:
-                #                 if not match.get("giocata", False):
-                #                     # Genera gol realistici (con un leggero vantaggio per chi gioca in casa)
-                #                     gh = random.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 8, 2])[0]
-                #                     ga = random.choices([0, 1, 2, 3, 4, 5], weights=[30, 35, 20, 10, 4, 1])[0]
-                                    
-                #                     match["gol_home"] = gh
-                #                     match["gol_away"] = ga
-                #                     match["giocata"] = True
-                                    
-                #                     # # ASSEGNAZIONE INCASSI AUTOMATICA
-                #                     # if not match.get("incassi_assegnati", False):
-                #                     #     h_team = db[match["home"]]
-                #                     #     if h_team['stadio']['livello']:
-                #                     #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
-                #                     #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
-                #                     #         h_team['cassa'] = round(h_team['cassa'] + incasso, 2)
-                #                     #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
-                #                     #     match["incassi_assegnati"] = True
-                        
-                #         save_data(db, DB_PATH)
-                #         save_data(calendario, CAL_PATH)
-                #         verifica_obiettivi_dinamici()
-                #         log_evento("Lega", "🎲", "L'Amministratore ha simulato l'intero Campionato!")
-                #         st.success("Simulazione completata! Tutti i risultati sono stati generati e gli incassi versati.")
-                #         st.rerun()
-                        
-                #####################################################################################
-                # FINE BLOCCO PER TEST
-                #####################################################################################
                 
                 st.info("👇 Scorri per vedere tutte le giornate.")
                 
@@ -1552,17 +1420,19 @@ elif menu == "5. Calendario & Partite":
                                         match["gol_away"] = ga
                                         match["giocata"] = True
 
+                                        if not match.get("incassi_assegnati", False):
+                                            if gh > ga:
+                                                incasso = 2.0  # Vittoria in casa
+                                            elif gh == ga:
+                                                incasso = 1.0  # Pareggio in casa
+                                            else:
+                                                incasso = 0.5  # Sconfitta in casa
+                                                
+                                            assegna_incasso_stadio(match["home"], db, f"G. {giornata_idx + 1} Camp.", incasso)
+                                            match["incassi_assegnati"] = True
+
                                         gol_map[match["home"]] = gh
                                         gol_map[match["away"]] = ga
-                                        
-                                        # if not match["incassi_assegnati"]:
-                                        #     h_team = db[match["home"]]
-                                        #     if h_team['stadio']['livello']:
-                                        #         incasso = h_team['stadio']['vittoria'] if gh > ga else (h_team['stadio']['pari'] if gh == ga else h_team['stadio']['base'])
-                                        #         h_team['bilancio']['ricavi']['incassi_stadio'] += incasso
-                                        #         h_team['cassa'] += incasso 
-                                        #         h_team['bilancio']['storico_movimenti'].append(f"Stadio G{giornata_idx + 1}: +{incasso}M")
-                                        #     match["incassi_assegnati"] = True
                                     
                                     save_data(db, DB_PATH)
                                     save_data(calendario, CAL_PATH)
@@ -1685,13 +1555,6 @@ elif menu == "6. Classifica Campionato":
                     squadre_ordinate = df_c.index.tolist()
                     premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
                     
-                    # --- CONTEGGIO PARTITE IN CASA ---
-                    # partite_in_casa = {s: 0 for s in db.keys()}
-                    # for md in calendario:
-                    #     for m in md:
-                    #         partite_in_casa[m["home"]] += 1
-                    # max_casa = max(partite_in_casa.values())
-                    
                     for pos, nome_sq in enumerate(squadre_ordinate):
                         team = db[nome_sq]
                         p_camp = premi_campionato[pos]
@@ -1705,18 +1568,6 @@ elif menu == "6. Classifica Campionato":
                         # ---> AGGIUNTA 1: Mostra a schermo e logga il Premio <---
                         st.success(f"🏅 **{pos+1}° Posto - {nome_sq}**: incassa **{p_camp} M** di premio.")
                         log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
-                        
-                        # 2. CONGUAGLIO STADIO: Rimborsa chi ha giocato meno partite in casa
-                        # diff_casa = max_casa - partite_in_casa[nome_sq]
-                        # if diff_casa > 0 and team['stadio']['livello']:
-                        #     conguaglio = diff_casa * team['stadio']['base']
-                        #     team['cassa'] = round(team['cassa'] + conguaglio, 2)
-                        #     team['bilancio']['ricavi']['incassi_stadio'] += conguaglio
-                        #     team['bilancio']['storico_movimenti'].append(f"Conguaglio Equità ({diff_casa} partite in meno in casa): +{conguaglio}M")
-                            
-                        #     # ---> AGGIUNTA 2: Mostra a schermo e logga il Conguaglio <---
-                        #     st.info(f"⚖️ **{nome_sq}** riceve **{conguaglio} M** di conguaglio stadio ({diff_casa} partita/e in meno in casa).")
-                        #     log_evento(nome_sq, "⚖️", f"ha ricevuto un conguaglio di **{conguaglio} M** per compensare le minori partite giocate in casa.")
                         
                         # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
                         obiettivi = team.get("sponsor", {}).get("obiettivi", {})
@@ -2413,7 +2264,6 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     }
                     
                     dati['bilancio'] = init_bilancio()
-                    # dati['stadio'] = {"livello": None, "costo_annuo": 0, "base": 0, "pari": 0, "vittoria": 0}
                     
                     dati['cassa'] += 70.0
                     dati['bilancio']['ricavi']['nuovo_capitale'] = 70.0
@@ -2507,32 +2357,6 @@ elif menu == "8. Chiusura Fiscale Bilancio":
                     dati['rosa'] = nuova_rosa
                     dati["premi_campionato_dati"] = False
                 
-                # ========================================================
-                # 4. ESECUZIONE DEI PRE-CONTRATTI BOSMAN
-                # ========================================================
-                for gb in giocatori_in_arrivo_bosman:
-                    pc = gb['pre_contratto']
-                    sq_futura = pc['squadra_futura']
-                    
-                    # Togliamo il premio alla firma dalla cassa della nuova squadra
-                    db[sq_futura]['cassa'] = round(db[sq_futura]['cassa'] - pc['premio_firma'], 2)
-                    db[sq_futura]['bilancio']['storico_movimenti'].append(f"Premio firma parametro zero ({gb['nome']}): -{pc['premio_firma']}M")
-                    
-                    # Creiamo il profilo nuovo fiammante e lo infiliamo in rosa
-                    nuovo_giocatore = {
-                        "nome": gb['nome'],
-                        "ruolo": gb['ruolo'],
-                        "costo_acquisto": pc['premio_firma'],
-                        "anni_contratto": pc['anni'],
-                        "stipendio": pc['stipendio'],
-                        "ammortamento_annuo": pc['ammortamento_annuo'],
-                        "anni_trascorsi": 0,
-                        "valore_residuo": pc['premio_firma'],
-                        "acquistato_a_gennaio": False
-                    }
-                    db[sq_futura]['rosa'].append(nuovo_giocatore)
-                    log_evento(sq_futura, "🤝", f"ha accolto ufficialmente in rosa **{gb['nome']}** a parametro zero. Spesa per il premio alla firma: {pc['premio_firma']} M.")
-
                 save_data(db, DB_PATH)
                 save_data([], CAL_PATH)
                 save_data(init_coppe(), COPPE_PATH)
