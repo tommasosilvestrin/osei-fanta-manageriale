@@ -249,7 +249,7 @@ st.sidebar.divider()
 # --- SIDEBAR NAVIGAZIONE ---
 st.sidebar.title("⚽ OFL Manager")
 menu = st.sidebar.radio("Navigazione", [
-    "1. Setup Società", 
+    "1. Home Società", 
     "2. Dashboard & Rosa", 
     "3. Mercato (Definitivi)", 
     "4. Mercato (Prestiti)",
@@ -338,116 +338,223 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. SETUP SOCIETÀ
+# 1. SETUP SOCIETÀ / UFFICIO PRESIDENZA
 # ==========================================
-if menu == "1. Setup Società":
-    st.header("🏢 Gestione Società")
+if menu == "1. Home Società":
+    st.header("🏢 Home Società")
 
-    if not st.session_state.is_admin:
-        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di sistema.")
+    # --- 1. GESTIONE ISCRIZIONI (Nasconde se siamo a 8 squadre) ---
+    if len(db) < 8:
+        if not st.session_state.is_admin:
+            st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di sistema.")
+        else:
+            with st.form("crea_squadra"):
+                c1, c2 = st.columns(2)
+                nome = c1.text_input("Nome Squadra")
+                mister = c2.text_input("Presidente")
+                if st.form_submit_button("Iscrivi Squadra (Fondo 500M)"):
+                    if nome and mister and nome not in db:
+                        db[nome] = {
+                            "allenatore": mister, "cassa": 500.0,
+                            "sponsor": {"nome": None, "valore": 0},
+                            "rosa": [], "bilancio": init_bilancio()
+                        }
+                        save_data(db, DB_PATH)
+                        st.success(f"Società {nome} creata!")
+                        st.rerun()
+                    elif nome in db:
+                        st.error("Squadra già esistente!")
     else:
-        with st.form("crea_squadra"):
-            c1, c2 = st.columns(2)
-            nome = c1.text_input("Nome Squadra")
-            mister = c2.text_input("Presidente")
-            if st.form_submit_button("Iscrivi Squadra (Fondo 500M)"):
-                if nome and mister and nome not in db:
-                    db[nome] = {
-                        "allenatore": mister, "cassa": 500.0,
-                        "sponsor": {"nome": None, "valore": 0},
-                        "rosa": [], "bilancio": init_bilancio()
-                    }
-                    save_data(db, DB_PATH)
-                    st.success(f"Società {nome} creata!")
-                elif nome in db:
-                    st.error("Squadra già esistente!")
+        st.info("🏆 **Campionato Completo:** Le 8 società della Osei Football League sono ufficialmente iscritte.")
 
-        st.divider()
-        if db:
-            sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
-            sq_dati = db[sq_sel]
+    st.divider()
+
+    # --- 2. UFFICIO DEL PRESIDENTE (Statistiche e Sponsor) ---
+    if db:
+        sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
+        sq_dati = db[sq_sel]
+        
+        # Calcolo Statistiche in tempo reale per la Dashboard
+        stats = {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0}
+        standings = {s: {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0} for s in db.keys()}
+        
+        if calendario:
+            for md in calendario:
+                for m in md:
+                    if m.get("giocata"):
+                        h, a, gh, ga = m["home"], m["away"], m["gol_home"], m["gol_away"]
+                        standings[h]["GF"] += gh; standings[h]["GS"] += ga
+                        standings[a]["GF"] += ga; standings[a]["GS"] += gh
+                        standings[h]["DR"] += (gh - ga); standings[a]["DR"] += (ga - gh)
+                        if gh > ga: standings[h]["Punti"] += 3; standings[h]["V"] += 1
+                        elif gh == ga: standings[h]["Punti"] += 1; standings[a]["Punti"] += 1
+                        else: standings[a]["Punti"] += 3; standings[a]["V"] += 1
             
-            st.subheader("💼 Gestione Sponsor e Obiettivi")
+            # Calcola la Posizione Attuale
+            import pandas as pd
+            df_c = pd.DataFrame.from_dict(standings, orient='index').sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+            squadre_ordinate = df_c.index.tolist()
+            posizione_attuale = squadre_ordinate.index(sq_sel) + 1 if sq_sel in squadre_ordinate else 0
+            stats = standings[sq_sel]
+        else:
+            posizione_attuale = 0
 
-            # Liste degli obiettivi esatti
-            ob_bronzo = [
-                "1. Non arrivare all'8° posto in campionato", 
-                "2. Almeno 8 vittorie in Campionato", 
-                "3. Segna almeno 35 gol in Campionato"
-            ]
-            ob_argento = [
-                "1. Arriva tra le prime 4 in campionato", 
-                "2. Almeno 12 vittorie in campionato", 
-                "3. Raggiungi una Finale (Coppa Italia o Champions League)"
-            ]
-            ob_oro = [
-                "1. Vinci il Campionato", 
-                "2. Almeno 20 vittorie in Campionato", 
-                "3. Vinci una Coppa (Coppa Italia o Champions League)"
-            ]
-
-            # Mappa segreta per far capire al programma la "Famiglia" dell'obiettivo
-            tipo_obiettivo = {
-                "1. Non arrivare all'8° posto in campionato": "Piazzamento",
-                "2. Almeno 8 vittorie in Campionato": "Vittorie",
-                "3. Segna almeno 35 gol in Campionato": "Speciali",
+        # Disegniamo la riga delle Info Sportive
+        col_c, col_co = st.columns(2)
+        
+        with col_c:
+            st.markdown(f"""
+            <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 15px; border-radius: 8px; height: 100%;'>
+                <h5 style='color: #1E293B; margin-top: 0;'>🇮🇹 Rendimento Campionato</h5>
+                <div style='font-size: 14px; color: #475569;'>
+                    Posizione: <b style='color: #2563EB; font-size: 18px;'>{posizione_attuale}°</b><br>
+                    Punti: <b>{stats['Punti']}</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_co:
+            # --- MOTORE DINAMICO FASI COPPE ---
+            def get_stato_ci(sq, c_data):
+                if not c_data or not c_data.get("quarti"): return "Da Iniziare"
+                if c_data.get("finale_salvata"):
+                    if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
+                    if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
+                if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
+                if c_data.get("quarti_salvati"):
+                    in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis", []))
+                    if not in_semi and any(sq in [mq["home"], mq["away"]] for mq in c_data.get("quarti", [])):
+                        return "🔴 Eliminata (Quarti)"
+                if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
+                if c_data.get("semis") and any(sq in [m["home"], m["away"]] for m in c_data["semis"]): return "🟢 In Corsa (Semifinali)"
+                if c_data.get("quarti") and any(sq in [m["home"], m["away"]] for m in c_data["quarti"]): return "🟢 In Corsa (Quarti)"
+                return "Non Qualificata"
                 
-                "1. Arriva tra le prime 4 in campionato": "Piazzamento",
-                "2. Almeno 12 vittorie in campionato": "Vittorie",
-                "3. Raggiungi una Finale (Coppa Italia o Champions League)": "Speciali",
-                
-                "1. Vinci il Campionato": "Piazzamento",
-                "2. Almeno 20 vittorie in Campionato": "Vittorie",
-                "3. Vinci una Coppa (Coppa Italia o Champions League)": "Speciali"
-            }
+            def get_stato_cl(sq, c_data):
+                if not c_data or not c_data.get("gir_A"): return "Da Iniziare"
+                if c_data.get("finale_salvata"):
+                    if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
+                    if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
+                if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
+                if c_data.get("gironi_salvati"):
+                    in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis_andata", []))
+                    if not in_semi and (sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", [])):
+                        return "🔴 Eliminata (Gironi)"
+                if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
+                if c_data.get("semis_andata") and any(sq in [m["home"], m["away"]] for m in c_data["semis_andata"]): return "🟢 In Corsa (Semifinali)"
+                if sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", []): return "🟢 In Corsa (Gironi)"
+                return "Non Qualificata"
 
-            # CONTROLLO: Se lo sponsor ha già un nome, nasconde gli input e mostra l'info
-            if sq_dati["sponsor"].get("nome"):
-                st.info(f"✅ **Sponsor Confermato:** Accordo base di 30M siglato con **{sq_dati['sponsor']['nome']}**.")
-                st.write("🎯 **Obiettivi scelti per questa stagione:**")
-                st.markdown(f"- 🥉 {sq_dati['sponsor']['obiettivi']['bronzo']} (8M)")
-                st.markdown(f"- 🥈 {sq_dati['sponsor']['obiettivi']['argento']} (15M)")
-                st.markdown(f"- 🥇 {sq_dati['sponsor']['obiettivi']['oro']} (30M)")
+            stato_ci = get_stato_ci(sq_sel, coppe.get("ci", {}))
+            stato_cl = get_stato_cl(sq_sel, coppe.get("cl", {}))
+            
+            st.markdown(f"""
+            <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 15px; border-radius: 8px; height: 100%;'>
+                <h5 style='color: #1E293B; margin-top: 0;'>🇪🇺 Rendimento Coppe</h5>
+                <div style='font-size: 14px; color: #475569;'>
+                    Coppa Italia: <b>{stato_ci}</b><br>
+                    Champions League: <b>{stato_cl}</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        st.write("")
+        st.subheader("💼 Contratti Commerciali e Sponsor")
+
+        # --- GESTIONE SPONSOR E TRACKING OBIETTIVI ---
+        if sq_dati["sponsor"].get("nome"):
+            st.success(f"🤝 Accordo firmato con il Main Sponsor: **{sq_dati['sponsor']['nome']}**")
+            st.write("📊 **Stato Avanzamento Obiettivi Stagionali:**")
+            
+            obiettivi = sq_dati['sponsor']['obiettivi']
+            pagati = sq_dati['sponsor'].get('obiettivi_pagati', [])
+            
+            for livello, (nome_liv, premio) in zip(
+                ['bronzo', 'argento', 'oro'], 
+                [("Bronzo", "8 M"), ("Argento", "15 M"), ("Oro", "30 M")]
+            ):
+                ob_text = obiettivi.get(livello, "")
+                if not ob_text: continue
+                
+                if ob_text in pagati:
+                    st.markdown(f"✅ **Obiettivo {nome_liv} ({premio}):** {ob_text} - <b style='color: #10B981;'>COMPLETATO E INCASSATO!</b>", unsafe_allow_html=True)
+                    continue
+
+                st.markdown(f"**Obiettivo {nome_liv} ({premio}):** {ob_text}")
+                
+                # --- MOTORE DI TRACKING DEGLI OBIETTIVI MIGLIORATO ---
+                if "vittorie" in ob_text:
+                    # Rilevamento manuale esatto per evitare errori con i numeri elenco
+                    if "8" in ob_text: target = 8
+                    elif "12" in ob_text: target = 12
+                    elif "20" in ob_text: target = 20
+                    else: target = 1 
+                    
+                    current = stats['V']
+                    progress = min(1.0, current / target)
+                    st.progress(progress, text=f"Progresso: {current} / {target} vittorie")
+                        
+                elif "gol" in ob_text:
+                    if "35" in ob_text: target = 35
+                    else: target = 1
+                    
+                    current = stats['GF']
+                    progress = min(1.0, current / target)
+                    st.progress(progress, text=f"Progresso: {current} / {target} gol fatti")
+                        
+                elif "posto" in ob_text or "prime 4" in ob_text or "Vinci il Campionato" in ob_text:
+                    if not calendario:
+                        st.caption("Campionato non ancora iniziato.")
+                    else:
+                        is_ok = False
+                        if "8° posto" in ob_text and posizione_attuale < 8: is_ok = True
+                        elif "prime 4" in ob_text and posizione_attuale <= 4: is_ok = True
+                        elif "Vinci" in ob_text and posizione_attuale == 1: is_ok = True
+                        
+                        if is_ok: st.markdown("🟢 **Status attuale:** In linea con l'obiettivo.")
+                        else: st.markdown("🔴 **Status attuale:** Al momento fuori dall'obiettivo.")
+                
+                elif "Finale" in ob_text or "Coppa" in ob_text:
+                    st.caption("Le coppe si decidono nelle fasi finali. Inseguimento in corso")
+                    
+                st.write("") # Spaziatore
+
+        else:
+            # --- FORM FIRMA SPONSOR PER I RITARDATARI ---
+            if not st.session_state.is_admin:
+                st.warning("Lo sponsor non è ancora stato firmato. Contatta l'Amministratore.")
             else:
                 with st.container(border=True):
                     st.write("La firma garantisce un introito base di **30 Milioni** istantanei. I premi degli obiettivi verranno erogati successivamente.")
                     ns = st.text_input("Nome del Main Sponsor")
                     
-                    st.write("Scegli un obiettivo per categoria. **Non puoi ripetere la stessa tipologia (Piazzamento, Vittorie, Coppe/Gol)**.")
+                    ob_bronzo = ["1. Non arrivare all'8° posto in campionato", "2. Almeno 8 vittorie in Campionato", "3. Segna almeno 35 gol in Campionato"]
+                    ob_argento = ["1. Arriva tra le prime 4 in campionato", "2. Almeno 12 vittorie in campionato", "3. Raggiungi una Finale (Coppa Italia o Champions League)"]
+                    ob_oro = ["1. Vinci il Campionato", "2. Almeno 20 vittorie in Campionato", "3. Vinci una Coppa (Coppa Italia o Champions League)"]
+                    
                     scelta_br = st.selectbox("🥉 Bronzo (8 Milioni)", ob_bronzo)
                     scelta_ar = st.selectbox("🥈 Argento (15 Milioni)", ob_argento)
                     scelta_or = st.selectbox("🥇 Oro (30 Milioni)", ob_oro)
                     
-                    # --- CONTROLLO LOGICO SULLE SCELTE ---
-                    # Creiamo una lista con le tre "famiglie" scelte dall'utente
-                    tipi_selezionati = [tipo_obiettivo[scelta_br], tipo_obiettivo[scelta_ar], tipo_obiettivo[scelta_or]]
+                    tipo_obiettivo = {
+                        "1. Non arrivare all'8° posto in campionato": "P", "2. Almeno 8 vittorie in Campionato": "V", "3. Segna almeno 35 gol in Campionato": "S",
+                        "1. Arriva tra le prime 4 in campionato": "P", "2. Almeno 12 vittorie in campionato": "V", "3. Raggiungi una Finale (Coppa Italia o Champions League)": "S",
+                        "1. Vinci il Campionato": "P", "2. Almeno 20 vittorie in Campionato": "V", "3. Vinci una Coppa (Coppa Italia o Champions League)": "S"
+                    }
                     
-                    # Il comando 'set' rimuove i doppioni. Se la lunghezza è < 3, vuol dire che ha ripetuto qualcosa!
+                    tipi_selezionati = [tipo_obiettivo[scelta_br], tipo_obiettivo[scelta_ar], tipo_obiettivo[scelta_or]]
                     ha_duplicati = len(set(tipi_selezionati)) < 3
                     
                     if ha_duplicati:
-                        st.error("⚠️ **ERRORE:** Hai selezionato più obiettivi della stessa tipologia. Modifica le scelte per poter firmare il contratto.")
-                    else:
-                        st.success("✅ Obiettivi diversificati correttamente! Il contratto è pronto.")
+                        st.error("⚠️ Hai selezionato più obiettivi della stessa tipologia. Diversificali.")
                     
-                    st.divider()
-                    
-                    # Il bottone viene disattivato (disabled=True) se ci sono duplicati o manca il nome
                     if st.button("Firma Contratto Sponsor", type="primary", disabled=ha_duplicati):
                         if ns.strip():
-                            # Salviamo il nome e i 3 obiettivi scelti nel database della squadra
                             sq_dati["sponsor"] = {
-                                "nome": ns, 
-                                "valore_base": 30.0,
-                                "obiettivi": {
-                                    "bronzo": scelta_br,
-                                    "argento": scelta_ar,
-                                    "oro": scelta_or
-                                },
+                                "nome": ns, "valore_base": 30.0,
+                                "obiettivi": {"bronzo": scelta_br, "argento": scelta_ar, "oro": scelta_or},
                                 "obiettivi_pagati": []
                             }
-                            
-                            # Accredita i 30M fissi se la voce sponsor a bilancio è a zero
                             if sq_dati["bilancio"]["ricavi"]["sponsor"] == 0.0:
                                 sq_dati["bilancio"]["ricavi"]["sponsor"] = 30.0
                                 sq_dati["cassa"] = round(sq_dati["cassa"] + 30.0, 2)
@@ -455,10 +562,10 @@ if menu == "1. Setup Società":
                             
                             save_data(db, DB_PATH)
                             log_evento(sq_sel, "💼", f"ha firmato con **{ns}**.")
-                            st.toast(f"Sponsor {ns} firmato! 30 Milioni di base accreditati.", icon="💼")
+                            st.toast(f"Sponsor {ns} firmato!", icon="💼")
                             st.rerun()
                         else:
-                            st.warning("⚠️ Inserisci il nome dello sponsor prima di firmare!")
+                            st.warning("Inserisci il nome dello sponsor!")
 
 # ==========================================
 # 2. DASHBOARD & ROSA
