@@ -1714,13 +1714,47 @@ elif menu == "7. Coppe (Italia & CL)":
         </style>
         """, unsafe_allow_html=True)
 
-        if not coppe["ci"]["quarti"]:
-            if st.session_state.is_admin and st.button("Sorteggia Tabellone Quarti Coppa Italia", type="primary"):
-                teams = list(db.keys())
-                random.shuffle(teams)
-                coppe["ci"]["quarti"] = [{"home": teams[i], "away": teams[i+1], "gol_home": 0, "gol_away": 0} for i in range(0, 8, 2)]
-                save_data(coppe, COPPE_PATH)
-                st.rerun()
+        # --- ANIMAZIONE SORTEGGIO QUARTI COPPA ITALIA ---
+        if not coppe["ci"].get("quarti"):
+            if st.session_state.is_admin:
+                if "ci_draw_step" not in st.session_state:
+                    if st.button("🎉 Inizia Sorteggio Quarti Coppa Italia", type="primary"):
+                        import random
+                        teams = list(db.keys())
+                        random.shuffle(teams)
+                        st.session_state.ci_shuffled_teams = teams
+                        st.session_state.ci_draw_step = 0
+                        st.session_state.ci_temp_quarti = []
+                        st.rerun()
+                else:
+                    st.markdown("### 🥁 Sorteggio in corso...")
+                    st.divider()
+                    
+                    for m in st.session_state.ci_temp_quarti:
+                        st.markdown(f"<div style='text-align: center; font-size: 20px; padding: 15px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'><b>{m['home']}</b> ⚔️ <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                    
+                    if st.session_state.ci_draw_step < 4:
+                        if st.button("🎱 Estrai Prossimo Accoppiamento", use_container_width=True):
+                            import time
+                            with st.spinner("Mescolamento palline nell'urna..."):
+                                time.sleep(1.2)
+                            i = st.session_state.ci_draw_step * 2
+                            t1 = st.session_state.ci_shuffled_teams[i]
+                            t2 = st.session_state.ci_shuffled_teams[i+1]
+                            st.session_state.ci_temp_quarti.append({"home": t1, "away": t2, "gol_home": 0, "gol_away": 0})
+                            st.session_state.ci_draw_step += 1
+                            st.rerun()
+                    else:
+                        st.success("✅ Tabellone Quarti Completato!")
+                        if st.button("Ufficializza Tabellone Quarti", type="primary", use_container_width=True):
+                            coppe["ci"]["quarti"] = st.session_state.ci_temp_quarti
+                            save_data(coppe, COPPE_PATH)
+                            del st.session_state.ci_draw_step
+                            del st.session_state.ci_shuffled_teams
+                            del st.session_state.ci_temp_quarti
+                            st.rerun()
+            else:
+                st.info("⏳ In attesa del Sorteggio Ufficiale dei Quarti di Finale.")
         
         if coppe["ci"]["quarti"]:
             st.write("🔴 **Quarti di Finale (G. 10)**")
@@ -1930,20 +1964,112 @@ elif menu == "7. Coppe (Italia & CL)":
         
         stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
 
-        if not coppe["cl"]["gir_A"]:
-            if st.session_state.is_admin and st.button("Sorteggia Gironi e Calendari Champions League", type="primary"):
-                teams = list(db.keys())
-                random.shuffle(teams)
-                coppe["cl"]["gir_A"] = teams[:4]
-                coppe["cl"]["gir_B"] = teams[4:]
-                
-                coppe["cl"]["cal_A"] = genera_calendario_berger(teams[:4], 6)
-                coppe["cl"]["cal_B"] = genera_calendario_berger(teams[4:], 6)
-                
-                save_data(coppe, COPPE_PATH)
-                st.rerun()
-                
-        if coppe["cl"]["gir_A"]:
+        # --- FASE 1: ANIMAZIONE ESTRAZIONE GIRONI ---
+        if not coppe["cl"].get("gir_A"):
+            if st.session_state.is_admin:
+                if "cl_draw_step" not in st.session_state:
+                    if st.button("🎉 Inizia Sorteggio Gironi Champions League", type="primary"):
+                        import random
+                        teams = list(db.keys())
+                        random.shuffle(teams)
+                        st.session_state.cl_shuffled_teams = teams
+                        st.session_state.cl_draw_step = 0
+                        st.session_state.cl_gir_A = []
+                        st.session_state.cl_gir_B = []
+                        st.rerun()
+                else:
+                    st.markdown("### 🥁 Sorteggio Gironi in corso...")
+                    st.divider()
+                    
+                    colA, colB = st.columns(2)
+                    with colA:
+                        st.markdown("<div style='background-color: #EFF6FF; padding: 15px; border-radius: 8px; border: 2px solid #BFDBFE; height: 100%;'>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #1D4ED8; text-align: center;'>🔵 Girone A</h4>", unsafe_allow_html=True)
+                        for t in st.session_state.cl_gir_A: 
+                            st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #DBEAFE;'>{t}</div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+                        
+                    with colB:
+                        st.markdown("<div style='background-color: #FEF2F2; padding: 15px; border-radius: 8px; border: 2px solid #FECACA; height: 100%;'>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #B91C1C; text-align: center;'>🔴 Girone B</h4>", unsafe_allow_html=True)
+                        for t in st.session_state.cl_gir_B: 
+                            st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #FEE2E2;'>{t}</div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.write("")
+                    
+                    if st.session_state.cl_draw_step < 8:
+                        girone_dest = "A 🔵" if st.session_state.cl_draw_step % 2 == 0 else "B 🔴"
+                        if st.button(f"🎱 Estrai squadra per il Girone {girone_dest}", use_container_width=True):
+                            import time
+                            with st.spinner("Apertura pallina..."):
+                                time.sleep(1.2)
+                            t = st.session_state.cl_shuffled_teams[st.session_state.cl_draw_step]
+                            if st.session_state.cl_draw_step % 2 == 0:
+                                st.session_state.cl_gir_A.append(t)
+                            else:
+                                st.session_state.cl_gir_B.append(t)
+                            st.session_state.cl_draw_step += 1
+                            st.rerun()
+                    else:
+                        st.success("✅ Squadre Assegnate ai Gironi!")
+                        if st.button("Ufficializza Gironi e passa ai Calendari", type="primary", use_container_width=True):
+                            coppe["cl"]["gir_A"] = st.session_state.cl_gir_A
+                            coppe["cl"]["gir_B"] = st.session_state.cl_gir_B
+                            save_data(coppe, COPPE_PATH)
+                            del st.session_state.cl_draw_step
+                            del st.session_state.cl_shuffled_teams
+                            del st.session_state.cl_gir_A
+                            del st.session_state.cl_gir_B
+                            st.rerun()
+            else:
+                st.info("⏳ In attesa del Sorteggio dei Gironi.")
+
+        # --- FASE 2: ANIMAZIONE STESURA CALENDARI ---
+        elif coppe["cl"].get("gir_A") and not coppe["cl"].get("cal_A"):
+            if st.session_state.is_admin:
+                if "cl_cal_step" not in st.session_state:
+                    if st.button("📅 Inizia Stesura Calendari Champions League", type="primary"):
+                        st.session_state.cl_temp_cal_A = genera_calendario_berger(coppe["cl"]["gir_A"], 6)
+                        st.session_state.cl_temp_cal_B = genera_calendario_berger(coppe["cl"]["gir_B"], 6)
+                        st.session_state.cl_cal_step = 0
+                        st.rerun()
+                else:
+                    st.markdown("### 🗓️ Composizione Calendario in corso...")
+                    st.divider()
+                    
+                    for step in range(st.session_state.cl_cal_step):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown(f"**Giornata {step+1} - Girone A**")
+                            for m in st.session_state.cl_temp_cal_A[step]:
+                                st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                        with c2:
+                            st.markdown(f"**Giornata {step+1} - Girone B**")
+                            for m in st.session_state.cl_temp_cal_B[step]:
+                                st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                        st.write("")
+                        
+                    if st.session_state.cl_cal_step < 6:
+                        if st.button(f"Rivela Accoppiamenti Giornata {st.session_state.cl_cal_step + 1}", use_container_width=True):
+                            import time
+                            with st.spinner("Elaborazione algoritmi..."):
+                                time.sleep(1)
+                            st.session_state.cl_cal_step += 1
+                            st.rerun()
+                    else:
+                        st.success("✅ Calendari Completati!")
+                        if st.button("Ufficializza Calendari Champions", type="primary", use_container_width=True):
+                            coppe["cl"]["cal_A"] = st.session_state.cl_temp_cal_A
+                            coppe["cl"]["cal_B"] = st.session_state.cl_temp_cal_B
+                            save_data(coppe, COPPE_PATH)
+                            del st.session_state.cl_cal_step
+                            del st.session_state.cl_temp_cal_A
+                            del st.session_state.cl_temp_cal_B
+                            st.rerun()
+
+        # --- FASE 3: MOSTRA I CALENDARI DOPO L'UFFICIALITÀ ---
+        if coppe["cl"].get("gir_A") and coppe["cl"].get("cal_A"):
             st.write("### Fase a Gironi")
             
             gironi_salvati = coppe["cl"].get("gironi_salvati", False)
