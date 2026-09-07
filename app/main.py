@@ -9,6 +9,8 @@ from datetime import datetime
 import os
 import re
 from datetime import datetime, timedelta
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 def load_feed():
     # Ora peschiamo le notizie direttamente dal database cloud (Firestore)
@@ -100,6 +102,75 @@ def init_bilancio():
                   "costi_giocatori_ceduti": 0.0},
         "storico_movimenti": []
     }
+
+def genera_grafica_risultati(titolo, partite):
+    # Formato QUADRATO (1080x1080) per eliminare lo spazio vuoto in eccesso
+    W, H = 1080, 1080
+    img = Image.new('RGB', (W, H), color=(15, 23, 42)) 
+    draw = ImageDraw.Draw(img)
+    
+    def get_font(size, is_bold=False):
+        try:
+            font_name = "arialbd.ttf" if is_bold else "arial.ttf"
+            return ImageFont.truetype(font_name, size)
+        except:
+            try:
+                font_name = "DejaVuSans-Bold.ttf" if is_bold else "DejaVuSans.ttf"
+                return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{font_name}", size)
+            except:
+                try: return ImageFont.load_default(size=size)
+                except: return ImageFont.load_default()
+
+    f_titolo = get_font(55, True)
+    f_squadre = get_font(30, True)
+    f_score = get_font(50, False)
+
+    draw.text((W/2, 180), "OSEI FOOTBALL LEAGUE", font=f_titolo, fill=(239, 68, 68), anchor="mm")
+    draw.text((W/2, 280), titolo.upper(), font=f_titolo, fill=(255, 255, 255), anchor="mm")
+    
+    y = 480 # Alzato un po' per centrare meglio nel quadrato
+    for m in partite:
+        h, a = m['home'], m['away']
+        gh, ga = m.get('gol_home', 0), m.get('gol_away', 0)
+        draw.text((W/2 - 95, y), h, font=f_squadre, fill=(248, 250, 252), anchor="rm")
+        draw.text((W/2, y), f"{gh} - {ga}", font=f_score, fill=(16, 185, 129), anchor="mm")
+        draw.text((W/2 + 95, y), a, font=f_squadre, fill=(248, 250, 252), anchor="lm")
+        y += 130 
+        
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+def genera_grafica_mercato(tipo_op, squadra, giocatore, dett1, dett2):
+    W, H = 1080, 1080
+    img = Image.new('RGB', (W, H), color=(15, 23, 42))
+    draw = ImageDraw.Draw(img)
+    
+    def get_font(size, is_bold=False):
+        try:
+            font_name = "arialbd.ttf" if is_bold else "arial.ttf"
+            return ImageFont.truetype(font_name, size)
+        except:
+            try:
+                font_name = "DejaVuSans-Bold.ttf" if is_bold else "DejaVuSans.ttf"
+                return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{font_name}", size)
+            except:
+                try: return ImageFont.load_default(size=size)
+                except: return ImageFont.load_default()
+
+    draw.text((W/2, 180), "ULTIM'ORA OFL", font=get_font(60, True), fill=(239, 68, 68), anchor="mm")
+    draw.text((W/2, 270), tipo_op.upper(), font=get_font(35, True), fill=(148, 163, 184), anchor="mm")
+    
+    draw.text((W/2, 450), squadra.upper(), font=get_font(40, True), fill=(248, 250, 252), anchor="mm")
+    draw.text((W/2, 550), giocatore.upper(), font=get_font(85, True), fill=(255, 255, 255), anchor="mm")
+    
+    draw.text((W/2, 750), dett1, font=get_font(45, False), fill=(16, 185, 129), anchor="mm")
+    if dett2:
+        draw.text((W/2, 830), dett2, font=get_font(45, False), fill=(250, 204, 21), anchor="mm")
+        
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 # --- NUOVA FUNZIONE AUTOMATICA PER GLI INCASSI ---
 def assegna_incasso_stadio(nome_squadra, database, competizione, incasso_mln=1.0):
@@ -257,7 +328,8 @@ menu = st.sidebar.radio("Navigazione", [
     "6. Classifica Campionato",
     "7. Coppe (Italia & CL)",
     "8. Chiusura Fiscale Bilancio",
-    "9. Cronologia Ufficialità"
+    "9. Cronologia Ufficialità",
+    "10. Generazione Grafiche"
 ])
 
 # ==========================================
@@ -1640,56 +1712,65 @@ elif menu == "6. Classifica Campionato":
             if premi_gia_dati:
                 st.info("✅ **Premi di fine campionato e Sponsor già erogati per questa stagione.**")
             else: 
+                # --- POPUP CONFERMA PREMI CAMPIONATO ---
+                @st.dialog("🏆 CONFERMA PREMI CAMPIONATO")
+                def popup_conferma_premi_campionato():
+                    st.warning("Stai per accreditare i premi di fine campionato e sbloccare i bonus sponsor. L'operazione è irreversibile.")
+                    if st.button("Sì, sono sicuro. Distribuisci i Premi", type="primary", use_container_width=True):
+                        squadre_ordinate = df_c.index.tolist()
+                        premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
+                        
+                        for pos, nome_sq in enumerate(squadre_ordinate):
+                            team = db[nome_sq]
+                            p_camp = premi_campionato[pos]
+                            team["premi_campionato_dati"] = True
+                            
+                            # 1. PREMIO CAMPIONATO
+                            team['cassa'] = round(team['cassa'] + p_camp, 2)
+                            team['bilancio']['ricavi']['premi_sportivi'] += p_camp
+                            team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                            log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
+                            
+                            # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
+                            obiettivi = team.get("sponsor", {}).get("obiettivi", {})
+                            pagati = team.get("sponsor", {}).setdefault("obiettivi_pagati", [])
+
+                            if obiettivi:
+                                ob_br = obiettivi.get("bronzo", "")
+                                if "8° posto" in ob_br and pos < 7 and ob_br not in pagati:
+                                    team['cassa'] = round(team['cassa'] + 8.0, 2)
+                                    team['bilancio']['ricavi']['sponsor'] += 8.0
+                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_br}): +8.0M")
+                                    pagati.append(ob_br)
+                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_br}** incassando **8.0 M**!")
+
+                                ob_ar = obiettivi.get("argento", "")
+                                if "prime 4" in ob_ar and pos < 4 and ob_ar not in pagati:
+                                    team['cassa'] = round(team['cassa'] + 15.0, 2)
+                                    team['bilancio']['ricavi']['sponsor'] += 15.0
+                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_ar}): +15.0M")
+                                    pagati.append(ob_ar)
+                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_ar}** incassando **15.0 M**!")
+
+                                ob_or = obiettivi.get("oro", "")
+                                if "Vinci il Campionato" in ob_or and pos == 0 and ob_or not in pagati:
+                                    team['cassa'] = round(team['cassa'] + 30.0, 2)
+                                    team['bilancio']['ricavi']['sponsor'] += 30.0
+                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_or}): +30.0M")
+                                    pagati.append(ob_or)
+                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_or}** incassando **30.0 M**!")
+
+                        save_data(db, DB_PATH)
+                        st.session_state.msg_premi_camp = "Premi di Campionato e Sponsor distribuiti con successo!"
+                        st.rerun()
+
+                # Richiamo del Popup
                 if st.button("🏆 Distribuisci Premi Campionato", type="primary"):
-                    st.subheader("💰 Resoconto Assegnazione Premi") # <-- TITOLO AGGIUNTO
+                    popup_conferma_premi_campionato()
                     
-                    squadre_ordinate = df_c.index.tolist()
-                    premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
-                    
-                    for pos, nome_sq in enumerate(squadre_ordinate):
-                        team = db[nome_sq]
-                        p_camp = premi_campionato[pos]
-                        team["premi_campionato_dati"] = True
-                        
-                        # 1. PREMIO CAMPIONATO: Entra ORA in Cassa e Bilancio corrente
-                        team['cassa'] = round(team['cassa'] + p_camp, 2)
-                        team['bilancio']['ricavi']['premi_sportivi'] += p_camp
-                        team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
-                        
-                        # ---> AGGIUNTA 1: Mostra a schermo e logga il Premio <---
-                        st.success(f"🏅 **{pos+1}° Posto - {nome_sq}**: incassa **{p_camp} M** di premio.")
-                        log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
-                        
-                        # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
-                        obiettivi = team.get("sponsor", {}).get("obiettivi", {})
-                        pagati = team.get("sponsor", {}).setdefault("obiettivi_pagati", [])
-
-                        if obiettivi:
-                            ob_br = obiettivi.get("bronzo", "")
-                            if "8° posto" in ob_br and pos < 7 and ob_br not in pagati:
-                                team['cassa'] = round(team['cassa'] + 8.0, 2)
-                                team['bilancio']['ricavi']['sponsor'] += 8.0
-                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_br}): +8.0M")
-                                pagati.append(ob_br)
-                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_br}** incassando **8.0 M**!")
-
-                            ob_ar = obiettivi.get("argento", "")
-                            if "prime 4" in ob_ar and pos < 4 and ob_ar not in pagati:
-                                team['cassa'] = round(team['cassa'] + 15.0, 2)
-                                team['bilancio']['ricavi']['sponsor'] += 15.0
-                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_ar}): +15.0M")
-                                pagati.append(ob_ar)
-                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_ar}** incassando **15.0 M**!")
-
-                            ob_or = obiettivi.get("oro", "")
-                            if "Vinci il Campionato" in ob_or and pos == 0 and ob_or not in pagati:
-                                team['cassa'] = round(team['cassa'] + 30.0, 2)
-                                team['bilancio']['ricavi']['sponsor'] += 30.0
-                                team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_or}): +30.0M")
-                                pagati.append(ob_or)
-                                log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_or}** incassando **30.0 M**!")
-
-                    save_data(db, DB_PATH)
+                if "msg_premi_camp" in st.session_state:
+                    st.success(st.session_state.msg_premi_camp)
+                    del st.session_state.msg_premi_camp
 
 # ==========================================
 # 7. COPPE UFFICIALI
@@ -1919,44 +2000,50 @@ elif menu == "7. Coppe (Italia & CL)":
                             st.rerun()
                 else:
                     st.info("🔒 **Finale archiviata.**")
-                    if not coppe["ci"]["premi_dati"] and st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
-                        st.subheader("💰 Resoconto Premi Coppa Italia")
-                        
-                        vincente = m.get('vincente')
-                        perdente = m['home'] if vincente == m['away'] else m['away']
-                        
-                        # --- 1. VINCITORE (35 M) ---
-                        premio_v = 35.0
-                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
-                        db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
-                        db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Coppa Italia: +{premio_v}M")
-                        
-                        st.success(f"🥇 **Vincitore - {vincente}**: incassa **{premio_v} M**!")
-                        log_evento(vincente, "🇮🇹", f"ha vinto la Coppa Italia e incassa **{premio_v} M**!")
-
-                        # --- 2. FINALISTA (20 M) ---
-                        premio_f = 20.0
-                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
-                        db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
-                        db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Coppa Italia: +{premio_f}M")
-                        
-                        st.info(f"🥈 **Finalista - {perdente}**: incassa **{premio_f} M**.")
-                        log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Coppa Italia.")
-
-                        # --- 3. SEMIFINALISTI (10 M) ---
-                        premio_s = 10.0
-                        for sq in coppe["ci"].get("perse_semis", []): 
-                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
-                            db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
-                            db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Coppa Italia: +{premio_s}M")
+                    # --- POPUP CONFERMA PREMI COPPA ITALIA ---
+                    @st.dialog("🇮🇹 CONFERMA PREMI COPPA ITALIA")
+                    def popup_conferma_premi_ci(m_finale):
+                        st.warning("Stai per accreditare i fondi per la vittoria della Coppa Italia. Confermi?")
+                        if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
+                            vincente = m_finale.get('vincente')
+                            perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
                             
-                            st.warning(f"🥉 **Semifinalista - {sq}**: incassa **{premio_s} M**.")
-                            log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Coppa Italia.")
+                            # --- 1. VINCITORE (35 M) ---
+                            premio_v = 35.0
+                            db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                            db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                            db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Coppa Italia: +{premio_v}M")
+                            log_evento(vincente, "🇮🇹", f"ha vinto la Coppa Italia e incassa **{premio_v} M**!")
+
+                            # --- 2. FINALISTA (20 M) ---
+                            premio_f = 20.0
+                            db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                            db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                            db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Coppa Italia: +{premio_f}M")
+                            log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Coppa Italia.")
+
+                            # --- 3. SEMIFINALISTI (10 M) ---
+                            premio_s = 10.0
+                            for sq in coppe["ci"].get("perse_semis", []): 
+                                db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                                db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                                db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Coppa Italia: +{premio_s}M")
+                                log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Coppa Italia.")
+                                
+                            coppe["ci"]["premi_dati"] = True
+                            save_data(db, DB_PATH)
+                            save_data(coppe, COPPE_PATH)
+                            st.session_state.msg_premi_ci = "Premi Coppa Italia erogati con successo!"
+                            st.rerun()
+
+                    st.info("🔒 **Finale archiviata.**")
+                    if not coppe["ci"]["premi_dati"]:
+                        if st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
+                            popup_conferma_premi_ci(m)
                             
-                        # Chiusura e salvataggio
-                        coppe["ci"]["premi_dati"] = True
-                        save_data(db, DB_PATH)
-                        save_data(coppe, COPPE_PATH)
+                    if "msg_premi_ci" in st.session_state:
+                        st.success(st.session_state.msg_premi_ci)
+                        del st.session_state.msg_premi_ci
     
     # ---------------- CHAMPIONS LEAGUE ----------------
     with t_cl:
@@ -2376,44 +2463,50 @@ elif menu == "7. Coppe (Italia & CL)":
                             st.rerun()
                 else:
                     st.info("🔒 **Finale archiviata.**")
-                    if not coppe["cl"]["premi_dati"] and st.button("🏆 Eroga Premi Champions League", type="primary"):
-                        st.subheader("💰 Resoconto Premi Champions League")
-                        
-                        vincente = m.get('vincente')
-                        perdente = m['home'] if vincente == m['away'] else m['away']
-                        
-                        # --- 1. VINCITORE (50 M) ---
-                        premio_v = 50.0
-                        db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
-                        db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
-                        db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Champions League: +{premio_v}M")
-                        
-                        st.success(f"🏆 **Campione d'Europa - {vincente}**: incassa **{premio_v} M**!")
-                        log_evento(vincente, "🇪🇺", f"ha vinto la Champions League e incassa **{premio_v} M**!")
-
-                        # --- 2. FINALISTA (35 M) ---
-                        premio_f = 35.0
-                        db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
-                        db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
-                        db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Champions League: +{premio_f}M")
-                        
-                        st.info(f"🥈 **Finalista - {perdente}**: incassa **{premio_f} M**.")
-                        log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Champions League.")
-
-                        # --- 3. SEMIFINALISTI (20 M) ---
-                        premio_s = 20.0
-                        for sq in coppe["cl"].get("perse_semis", []): 
-                            db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
-                            db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
-                            db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Champions League: +{premio_s}M")
+                    # --- POPUP CONFERMA PREMI CHAMPIONS LEAGUE ---
+                    @st.dialog("🇪🇺 CONFERMA PREMI CHAMPIONS LEAGUE")
+                    def popup_conferma_premi_cl(m_finale):
+                        st.warning("Stai per accreditare i fondi per la vittoria della Champions League. Confermi?")
+                        if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
+                            vincente = m_finale.get('vincente')
+                            perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
                             
-                            st.warning(f"🥉 **Semifinalista - {sq}**: incassa **{premio_s} M**.")
-                            log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Champions League.")
+                            # --- 1. VINCITORE (50 M) ---
+                            premio_v = 50.0
+                            db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                            db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                            db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Champions League: +{premio_v}M")
+                            log_evento(vincente, "🇪🇺", f"ha vinto la Champions League e incassa **{premio_v} M**!")
+
+                            # --- 2. FINALISTA (35 M) ---
+                            premio_f = 35.0
+                            db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                            db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                            db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Champions League: +{premio_f}M")
+                            log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Champions League.")
+
+                            # --- 3. SEMIFINALISTI (20 M) ---
+                            premio_s = 20.0
+                            for sq in coppe["cl"].get("perse_semis", []): 
+                                db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                                db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                                db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Champions League: +{premio_s}M")
+                                log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Champions League.")
+                                
+                            coppe["cl"]["premi_dati"] = True
+                            save_data(db, DB_PATH)
+                            save_data(coppe, COPPE_PATH)
+                            st.session_state.msg_premi_cl = "Premi Champions League erogati con successo!"
+                            st.rerun()
+
+                    st.info("🔒 **Finale archiviata.**")
+                    if not coppe["cl"]["premi_dati"]:
+                        if st.button("🏆 Eroga Premi Champions League", type="primary"):
+                            popup_conferma_premi_cl(m)
                             
-                        # Chiusura e salvataggio
-                        coppe["cl"]["premi_dati"] = True
-                        save_data(db, DB_PATH)
-                        save_data(coppe, COPPE_PATH)
+                    if "msg_premi_cl" in st.session_state:
+                        st.success(st.session_state.msg_premi_cl)
+                        del st.session_state.msg_premi_cl
 
 # ==========================================
 # 8. CHIUSURA FISCALE
@@ -2714,3 +2807,114 @@ elif menu == "9. Cronologia Ufficialità":
             
             html_feed += "</div>"
             st.markdown(html_feed, unsafe_allow_html=True)
+
+# ==========================================
+# 10. GENERATORE DI GRAFICHE
+# ==========================================
+elif menu == "10. Generazione Grafiche":
+    st.header("📸 Grafiche OFL")
+    
+    try: cal_aggiornato = load_data(CAL_PATH)
+    except: cal_aggiornato = calendario
+    try: coppe_aggiornate = load_data(COPPE_PATH)
+    except: coppe_aggiornate = coppe
+
+    tipo_grafica = st.radio("Scegli la tipologia di grafica", ["⚽ Risultati Partite", "🤝 Operazioni di Mercato"], horizontal=True)
+    st.divider()
+
+    # --- SEZIONE RISULTATI (Esistente) ---
+    if tipo_grafica == "⚽ Risultati Partite":
+        comp = st.selectbox("Seleziona la Competizione", ["Seleziona...", "Campionato", "Coppa Italia", "Champions League"])
+        partite_da_disegnare = []
+        titolo_grafica = ""
+        
+        if comp == "Campionato":
+            if not cal_aggiornato: st.warning("Il calendario non è ancora stato generato.")
+            else:
+                giornate = [f"Giornata {i+1}" for i in range(len(cal_aggiornato))]
+                gs = st.selectbox("Turno", giornate)
+                partite_da_disegnare = cal_aggiornato[int(gs.split(" ")[1]) - 1]
+                titolo_grafica = f"Risultati {gs}"
+                
+        elif comp == "Coppa Italia":
+            fasi = [f for f, k in zip(["Quarti di Finale", "Semifinali", "Finale"], ["quarti", "semis", "finale"]) if coppe_aggiornate.get("ci", {}).get(k)]
+            if not fasi: st.warning("Nessuna partita disputata.")
+            else:
+                fs = st.selectbox("Turno", fasi)
+                chiave = {"Quarti di Finale": "quarti", "Semifinali": "semis", "Finale": "finale"}[fs]
+                partite_da_disegnare = coppe_aggiornate["ci"][chiave]
+                titolo_grafica = f"Coppa Italia - {fs}"
+                
+        elif comp == "Champions League":
+            fasi = []
+            if coppe_aggiornate.get("cl", {}).get("cal_A"): fasi += [f"Gironi - Giornata {i+1}" for i in range(len(coppe_aggiornate["cl"]["cal_A"]))]
+            if coppe_aggiornate.get("cl", {}).get("semis_andata"): fasi += ["Semifinali Andata", "Semifinali Ritorno"]
+            if coppe_aggiornate.get("cl", {}).get("finale"): fasi += ["Finale"]
+            if not fasi: st.warning("Nessuna partita disputata.")
+            else:
+                fs = st.selectbox("Turno", fasi)
+                if "Gironi" in fs:
+                    i = int(fs.split("Giornata ")[1]) - 1
+                    partite_da_disegnare = coppe_aggiornate["cl"]["cal_A"][i] + coppe_aggiornate["cl"]["cal_B"][i]
+                else:
+                    chiave = {"Semifinali Andata": "semis_andata", "Semifinali Ritorno": "semis_ritorno", "Finale": "finale"}[fs]
+                    partite_da_disegnare = coppe_aggiornate["cl"][chiave]
+                titolo_grafica = f"Champions League - {fs}"
+                
+        if partite_da_disegnare:
+            if st.button("🎨 Genera Grafica Risultati", type="primary", use_container_width=True):
+                img_bytes = genera_grafica_risultati(titolo_grafica, partite_da_disegnare)
+                st.success("✅ Grafica generata con successo!")
+                col_img, col_btn = st.columns([1, 2])
+                with col_img: st.image(img_bytes, use_container_width=True) 
+                with col_btn:
+                    st.download_button("📸 Scarica Immagine PNG", img_bytes, f"OFL_{titolo_grafica.replace(' ', '_')}.png", "image/png", type="primary")
+
+    # --- NUOVA SEZIONE MERCATO ---
+    else:
+        tipo_op = st.selectbox("Tipologia Operazione", ["Acquisto Definitivo", "Cessione / Trasferimento", "Rinnovo Contrattuale", "Prestito", "Riscatto Prestito", "Svincolo"])
+        sq = st.selectbox("Squadra Coinvolta", list(db.keys()))
+        gioc = st.text_input("Nome Giocatore (es. Lukaku)")
+        
+        c1, c2 = st.columns(2)
+        dett1, dett2 = "", ""
+        
+        if tipo_op == "Acquisto Definitivo":
+            costo = c1.number_input("Costo Cartellino (M)", min_value=0.0, step=1.0)
+            anni = c2.number_input("Anni di contratto", min_value=1, step=1)
+            dett1 = f"Acquistato per: {costo} M"
+            dett2 = f"Contratto: {anni} anni"
+        elif tipo_op == "Cessione / Trasferimento":
+            costo = c1.number_input("Cifra di cessione (M)", min_value=0.0, step=1.0)
+            sq2 = c2.text_input("Ceduto a (Opzionale)")
+            dett1 = f"Ceduto per: {costo} M"
+            dett2 = f"Verso: {sq2}" if sq2 else ""
+        elif tipo_op == "Rinnovo Contrattuale":
+            anni = c1.number_input("Estensione di", min_value=1, step=1)
+            stipendio = c2.number_input("Nuovo stipendio (M)", min_value=0.0, step=0.1)
+            dett1 = f"Rinnovo per {anni} anni"
+            dett2 = f"Nuovo Ingaggio: {stipendio} M"
+        elif tipo_op == "Prestito":
+            formula = c1.selectbox("Formula", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
+            sq2 = c2.selectbox("Asse di mercato con", [s for s in db.keys() if s != sq])
+            dett1 = f"Formula: {formula}"
+            dett2 = f"Operazione con: {sq2}"
+        elif tipo_op == "Riscatto Prestito":
+            costo = c1.number_input("Cifra di Riscatto (M)", min_value=0.0, step=1.0)
+            sq2 = c2.selectbox("Riscattato dal", [s for s in db.keys() if s != sq])
+            dett1 = f"Riscattato per: {costo} M"
+            dett2 = f"Squadra origine: {sq2}"
+        elif tipo_op == "Svincolo":
+            dett1 = "Risoluzione Anticipata"
+            dett2 = "Svincolato nel mercato libero"
+
+        if st.button("🎨 Genera Grafica Mercato", type="primary", use_container_width=True):
+            if not gioc:
+                st.error("Inserisci il nome del giocatore!")
+            else:
+                img_bytes = genera_grafica_mercato(tipo_op, sq, gioc, dett1, dett2)
+                st.success("✅ Grafica generata con successo!")
+                col_img, col_btn = st.columns([1, 2])
+                with col_img: st.image(img_bytes, use_container_width=True) 
+                with col_btn:
+                    st.download_button("📸 Scarica Immagine PNG", img_bytes, f"OFL_Mercato_{gioc}.png", "image/png", type="primary")
