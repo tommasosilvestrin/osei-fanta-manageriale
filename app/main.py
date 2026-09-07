@@ -104,9 +104,14 @@ def init_bilancio():
     }
 
 def genera_grafica_risultati(titolo, partite):
-    # Formato QUADRATO (1080x1080) per eliminare lo spazio vuoto in eccesso
     W, H = 1080, 1080
-    img = Image.new('RGB', (W, H), color=(15, 23, 42)) 
+    
+    # Colori stile "Serie A Ufficiale"
+    bg_color = (26, 73, 163)      
+    row_color = (18, 52, 119)     
+    text_cyan = (0, 224, 255)     
+    
+    img = Image.new('RGB', (W, H), color=bg_color) 
     draw = ImageDraw.Draw(img)
     
     def get_font(size, is_bold=False):
@@ -121,21 +126,68 @@ def genera_grafica_risultati(titolo, partite):
                 try: return ImageFont.load_default(size=size)
                 except: return ImageFont.load_default()
 
-    f_titolo = get_font(55, True)
-    f_squadre = get_font(30, True)
-    f_score = get_font(50, False)
+    # Dimensioni font bilanciate (FONT SQUADRE RIDOTTO A 26)
+    f_super = get_font(38, True)
+    f_main = get_font(95, True)
+    f_sub = get_font(48, True)
+    f_squadre = get_font(26, True) 
+    f_score = get_font(45, True)
 
-    draw.text((W/2, 180), "OSEI FOOTBALL LEAGUE", font=f_titolo, fill=(239, 68, 68), anchor="mm")
-    draw.text((W/2, 280), titolo.upper(), font=f_titolo, fill=(255, 255, 255), anchor="mm")
+    titolo_pulito = titolo.upper().replace("RISULTATI ", "")
+
+    # --- 1. INTESTAZIONE (In alto a sx) ---
+    draw.text((40, 100), "OSEI FOOTBALL LEAGUE", font=f_super, fill=text_cyan)
+    draw.text((35, 160), "Risultati finali", font=f_main, fill=(255, 255, 255))
+    draw.text((40, 275), titolo_pulito, font=f_sub, fill=(255, 255, 255))
     
-    y = 480 # Alzato un po' per centrare meglio nel quadrato
-    for m in partite:
+    # --- 2. ELENCO PARTITE CON LOGHI ---
+    y_start = 420
+    row_height = 100
+    spacing = 140
+    
+    import os 
+    
+    for i, m in enumerate(partite):
         h, a = m['home'], m['away']
         gh, ga = m.get('gol_home', 0), m.get('gol_away', 0)
-        draw.text((W/2 - 95, y), h, font=f_squadre, fill=(248, 250, 252), anchor="rm")
-        draw.text((W/2, y), f"{gh} - {ga}", font=f_score, fill=(16, 185, 129), anchor="mm")
-        draw.text((W/2 + 95, y), a, font=f_squadre, fill=(248, 250, 252), anchor="lm")
-        y += 130 
+        y = y_start + (i * spacing)
+        
+        # SFONDO RIGA PIÙ LARGO (da 40 a W-40 invece che da 90 a W-90)
+        draw.rectangle([40, y, W - 40, y + row_height], fill=row_color)
+        
+        # Parallelogramma bianco centrale 
+        hw = 90      
+        offset = 25  
+        
+        p1 = (540 - hw + offset, y)                 
+        p2 = (540 + hw + offset, y)                 
+        p3 = (540 + hw - offset, y + row_height)    
+        p4 = (540 - hw - offset, y + row_height)    
+        
+        draw.polygon([p1, p2, p3, p4], fill=(255, 255, 255))
+        draw.text((540, y + (row_height/2)), f"{gh} - {ga}", font=f_score, fill=row_color, anchor="mm")
+        
+        # COORDINATE LOGHI
+        x_logo_home = 540 - hw - 65
+        x_logo_away = 540 + hw + 65
+        
+        # Inserimento loghi
+        def paste_logo(team_name, x_center):
+            percorso = f"loghi/{team_name}.png"
+            try:
+                logo = Image.open(percorso).convert("RGBA")
+                logo = logo.resize((65, 65), Image.Resampling.LANCZOS)
+                pos = (int(x_center - 32), int(y + (row_height/2) - 32))
+                img.paste(logo, pos, logo)
+            except:
+                pass 
+                
+        paste_logo(h, x_logo_home)
+        paste_logo(a, x_logo_away)
+        
+        # TESTO SQUADRE (Distanziato correttamente dai loghi: 45 pixel dal centro del logo)
+        draw.text((x_logo_home - 45, y + (row_height/2)), h, font=f_squadre, fill=(255, 255, 255), anchor="rm")
+        draw.text((x_logo_away + 45, y + (row_height/2)), a, font=f_squadre, fill=(255, 255, 255), anchor="lm")
         
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -143,7 +195,13 @@ def genera_grafica_risultati(titolo, partite):
 
 def genera_grafica_mercato(tipo_op, squadra, giocatore, dett1, dett2):
     W, H = 1080, 1080
-    img = Image.new('RGB', (W, H), color=(15, 23, 42))
+    
+    # Colori stile Transfermarkt / Sky Sport
+    bg_color = (0, 42, 92)        
+    box_color = (0, 20, 50)       
+    text_cyan = (0, 255, 200)     
+    
+    img = Image.new('RGB', (W, H), color=bg_color)
     draw = ImageDraw.Draw(img)
     
     def get_font(size, is_bold=False):
@@ -158,16 +216,57 @@ def genera_grafica_mercato(tipo_op, squadra, giocatore, dett1, dett2):
                 try: return ImageFont.load_default(size=size)
                 except: return ImageFont.load_default()
 
-    draw.text((W/2, 180), "ULTIM'ORA OFL", font=get_font(60, True), fill=(239, 68, 68), anchor="mm")
-    draw.text((W/2, 270), tipo_op.upper(), font=get_font(35, True), fill=(148, 163, 184), anchor="mm")
+    # --- DIMENSIONI RICALIBRATE ---
+    f_header_small = get_font(28, True)
+    f_header_big = get_font(52, True)  # Ridotto da 75 a 52 per non far uscire "TRASFERIMENTO"
+    f_player = get_font(65, True)      
+    f_label = get_font(22, False)      # Ridotto da 25 a 22
+    f_value = get_font(38, True)       # Ridotto da 50 a 38 per i nomi lunghi nelle colonne
+
+    # --- 1. HEADER ---
+    draw.text((W/2, 90), "O S E I   F O O T B A L L   L E A G U E", font=f_header_small, fill=text_cyan, anchor="mm")
+    draw.text((W/2, 160), tipo_op.upper(), font=f_header_big, fill=(255, 255, 255), anchor="mm")
     
-    draw.text((W/2, 450), squadra.upper(), font=get_font(40, True), fill=(248, 250, 252), anchor="mm")
-    draw.text((W/2, 550), giocatore.upper(), font=get_font(85, True), fill=(255, 255, 255), anchor="mm")
+    # --- 2. LOGO AL CENTRO ---
+    y_logo = 410 # Alzato leggermente
+    try:
+        logo = Image.open(f"loghi/{squadra}.png").convert("RGBA")
+        # Ridimensionato da 380 a 320 per dare più respiro
+        logo = logo.resize((320, 320), Image.Resampling.LANCZOS)
+        img.paste(logo, (int(W/2 - 160), int(y_logo - 160)), logo)
+    except:
+        draw.text((W/2, y_logo), squadra.upper(), font=get_font(55, True), fill=(255, 255, 255), anchor="mm")
+
+    # --- 3. BOX INFORMATIVO IN BASSO ---
+    box_y = 650 # Alzato di 30px per centrare meglio i testi
+    draw.rectangle([60, box_y, W - 60, H - 60], fill=box_color)
+    draw.rectangle([60, box_y, W - 60, box_y + 6], fill=text_cyan)
     
-    draw.text((W/2, 750), dett1, font=get_font(45, False), fill=(16, 185, 129), anchor="mm")
+    # --- 4. NOME GIOCATORE ---
+    draw.text((W/2, box_y + 80), giocatore.upper(), font=f_player, fill=(255, 255, 255), anchor="mm")
+    draw.line([(W/2 - 320, box_y + 140), (W/2 + 320, box_y + 140)], fill=(50, 80, 130), width=2)
+    
+    # --- 5. COLONNE DETTAGLI ECONOMICI ---
+    def draw_column(testo, x_center):
+        if not testo: return
+        if ":" in testo:
+            label, val = testo.split(":", 1)
+            label = label.strip().upper()
+            val = val.strip().upper()
+        else:
+            label = "DETTAGLI"
+            val = testo.strip().upper()
+            
+        draw.text((x_center, box_y + 190), label, font=f_label, fill=text_cyan, anchor="mm")
+        draw.text((x_center, box_y + 245), val, font=f_value, fill=(255, 255, 255), anchor="mm")
+
     if dett2:
-        draw.text((W/2, 830), dett2, font=get_font(45, False), fill=(250, 204, 21), anchor="mm")
-        
+        draw_column(dett1, W/2 - 200) 
+        draw_column(dett2, W/2 + 200) 
+        draw.line([(W/2, box_y + 160), (W/2, box_y + 280)], fill=(50, 80, 130), width=2)
+    else:
+        draw_column(dett1, W/2)       
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -2872,9 +2971,9 @@ elif menu == "10. Generazione Grafiche":
 
     # --- NUOVA SEZIONE MERCATO ---
     else:
-        tipo_op = st.selectbox("Tipologia Operazione", ["Acquisto Definitivo", "Cessione / Trasferimento", "Rinnovo Contrattuale", "Prestito", "Riscatto Prestito", "Svincolo"])
+        tipo_op = st.selectbox("Tipologia Operazione", ["Acquisto Definitivo", "Trasferimento", "Rinnovo Contrattuale", "Prestito", "Riscatto Prestito", "Svincolo"])
         sq = st.selectbox("Squadra Coinvolta", list(db.keys()))
-        gioc = st.text_input("Nome Giocatore (es. Lukaku)")
+        gioc = st.text_input("Nome Giocatore")
         
         c1, c2 = st.columns(2)
         dett1, dett2 = "", ""
@@ -2882,23 +2981,23 @@ elif menu == "10. Generazione Grafiche":
         if tipo_op == "Acquisto Definitivo":
             costo = c1.number_input("Costo Cartellino (M)", min_value=0.0, step=1.0)
             anni = c2.number_input("Anni di contratto", min_value=1, step=1)
-            dett1 = f"Acquistato per: {costo} M"
+            dett1 = f"Costo acquisto: {costo} M"
             dett2 = f"Contratto: {anni} anni"
-        elif tipo_op == "Cessione / Trasferimento":
+        elif tipo_op == "Trasferimento":
             costo = c1.number_input("Cifra di cessione (M)", min_value=0.0, step=1.0)
-            sq2 = c2.text_input("Ceduto a (Opzionale)")
-            dett1 = f"Ceduto per: {costo} M"
-            dett2 = f"Verso: {sq2}" if sq2 else ""
+            sq2 = c2.text_input("Acquistato da")
+            dett1 = f"Costo acquisto: {costo} M"
+            dett2 = f"Provenienza: {sq2}" if sq2 else ""
         elif tipo_op == "Rinnovo Contrattuale":
             anni = c1.number_input("Estensione di", min_value=1, step=1)
             stipendio = c2.number_input("Nuovo stipendio (M)", min_value=0.0, step=0.1)
-            dett1 = f"Rinnovo per {anni} anni"
+            dett1 = f"Nuova durata: {anni} anni"
             dett2 = f"Nuovo Ingaggio: {stipendio} M"
         elif tipo_op == "Prestito":
             formula = c1.selectbox("Formula", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
-            sq2 = c2.selectbox("Asse di mercato con", [s for s in db.keys() if s != sq])
+            sq2 = c2.selectbox("In prestito da", [s for s in db.keys() if s != sq])
             dett1 = f"Formula: {formula}"
-            dett2 = f"Operazione con: {sq2}"
+            dett2 = f"In prestito da: {sq2}"
         elif tipo_op == "Riscatto Prestito":
             costo = c1.number_input("Cifra di Riscatto (M)", min_value=0.0, step=1.0)
             sq2 = c2.selectbox("Riscattato dal", [s for s in db.keys() if s != sq])
