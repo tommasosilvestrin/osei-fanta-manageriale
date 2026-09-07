@@ -1,6 +1,6 @@
-streamlit>=1.37.0
+streamlit
 pandas
 google-cloud-firestore
 google-auth
 plotly
-Pillow==10.2.0
+Pillow
