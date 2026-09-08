@@ -545,12 +545,19 @@ if menu == "1. Home Società":
         sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
         sq_dati = db[sq_sel]
         
+        # ---> LA SOLUZIONE: FORZIAMO IL CARICAMENTO DEL CALENDARIO FRESCO <---
+        try:
+            cal_aggiornato = load_data(CAL_PATH)
+        except:
+            cal_aggiornato = calendario
+        
         # Calcolo Statistiche in tempo reale per la Dashboard
         stats = {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0}
         standings = {s: {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0} for s in db.keys()}
         
-        if calendario:
-            for md in calendario:
+        # Ora usiamo 'cal_aggiornato' invece del vecchio 'calendario'
+        if cal_aggiornato:
+            for md in cal_aggiornato:
                 for m in md:
                     if m.get("giocata"):
                         h, a, gh, ga = m["home"], m["away"], m["gol_home"], m["gol_away"]
@@ -674,7 +681,7 @@ if menu == "1. Home Società":
                     st.progress(progress, text=f"Progresso: {current} / {target} gol fatti")
                         
                 elif "posto" in ob_text or "prime 4" in ob_text or "Vinci il Campionato" in ob_text:
-                    if not calendario:
+                    if not cal_aggiornato:
                         st.caption("Campionato non ancora iniziato.")
                     else:
                         is_ok = False
@@ -686,7 +693,7 @@ if menu == "1. Home Società":
                         else: st.markdown("🔴 **Status attuale:** Al momento fuori dall'obiettivo.")
                 
                 elif "Finale" in ob_text or "Coppa" in ob_text:
-                    st.caption("Le coppe si decidono nelle fasi finali. Inseguimento in corso")
+                    st.caption("Le coppe si decidono nelle fasi finali.")
                     
                 st.write("") # Spaziatore
 
