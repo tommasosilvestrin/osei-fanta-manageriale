@@ -13,11 +13,11 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 
 def load_feed():
-    # Ora peschiamo le notizie direttamente dal database cloud (Firestore)
-    return load_data("feed_notizie")
+    # Usiamo il nuovo motore super veloce in RAM!
+    return get_data("feed_notizie")
 
 def save_feed(data):
-    # Salviamo le notizie al sicuro su Firestore
+    # Usiamo la nuova funzione di salvataggio
     save_data(data, "feed_notizie")
 
 def log_evento(nome_squadra, icona, testo):
@@ -71,23 +71,39 @@ def get_db_connection():
 
 firestore_db = get_db_connection()
 
-# --- FUNZIONI DATI E LOGICA ---
-def load_data(doc_name):
-    # Cerca il documento nel database Cloud
+# --- FUNZIONI DATI E LOGICA (OTTIMIZZATE PER IL CLOUD) ---
+
+def load_data_from_cloud(doc_name):
+    """Scarica fisicamente i dati da Firestore. Usata solo quando strettamente necessario."""
     doc_ref = firestore_db.collection("ofl_database").document(doc_name)
     doc = doc_ref.get()
-    
     if doc.exists:
-        # Trasforma i dati salvati di nuovo in formato Python
         return json.loads(doc.to_dict()["dati_json"])
     else:
-        # Se il database è vuoto (la primissima volta), crea le liste vuote
         return {} if doc_name in ["squadre", "coppe"] else []
 
+def get_data(doc_name):
+    """Il 'Ponte'. Restituisce i dati all'istante dalla RAM se ci sono, sennò li scarica."""
+    if doc_name not in st.session_state:
+        # Mostra un piccolo caricamento solo la prima volta
+        with st.spinner(f"Sincronizzazione {doc_name} dal server..."):
+            st.session_state[doc_name] = load_data_from_cloud(doc_name)
+    return st.session_state[doc_name]
+
 def save_data(data, doc_name):
+    """Salva nel Cloud E aggiorna la RAM istantaneamente."""
+    # 1. Aggiorna lo stato locale per reattività immediata
+    st.session_state[doc_name] = data
+    # 2. Invia i dati al sicuro su Firestore
     doc_ref = firestore_db.collection("ofl_database").document(doc_name)
-    # Invia i dati al sicuro nel Cloud
     doc_ref.set({"dati_json": json.dumps(data, ensure_ascii=False)})
+
+def force_sync():
+    """Forza lo scaricamento di dati freschi (utile se c'è un altro Admin connesso)"""
+    st.session_state.pop(DB_PATH, None)
+    st.session_state.pop(CAL_PATH, None)
+    st.session_state.pop(COPPE_PATH, None)
+    st.session_state.pop("feed_notizie", None)
 
 def init_bilancio():
     return {
@@ -103,173 +119,50 @@ def init_bilancio():
         "storico_movimenti": []
     }
 
-def genera_grafica_risultati(titolo, partite):
-    W, H = 1080, 1080
+def calcola_classifica(calendario_dati, squadre_keys):
+    """Calcola l'intera classifica e le statistiche ciclando il calendario una sola volta."""
+    standings = {s: {"Punti": 0, "G": 0, "V": 0, "N": 0, "P": 0, "GF": 0, "GS": 0, "DR": 0} for s in squadre_keys}
     
-    # Colori stile "Serie A Ufficiale"
-    bg_color = (26, 73, 163)      
-    row_color = (18, 52, 119)     
-    text_cyan = (0, 224, 255)     
-    
-    img = Image.new('RGB', (W, H), color=bg_color) 
-    draw = ImageDraw.Draw(img)
-    
-    def get_font(size, is_bold=False):
-        try:
-            font_name = "arialbd.ttf" if is_bold else "arial.ttf"
-            return ImageFont.truetype(font_name, size)
-        except:
-            try:
-                font_name = "DejaVuSans-Bold.ttf" if is_bold else "DejaVuSans.ttf"
-                return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{font_name}", size)
-            except:
-                try: return ImageFont.load_default(size=size)
-                except: return ImageFont.load_default()
-
-    # Dimensioni font bilanciate (FONT SQUADRE RIDOTTO A 26)
-    f_super = get_font(38, True)
-    f_main = get_font(95, True)
-    f_sub = get_font(48, True)
-    f_squadre = get_font(26, True) 
-    f_score = get_font(45, True)
-
-    titolo_pulito = titolo.upper().replace("RISULTATI ", "")
-
-    # --- 1. INTESTAZIONE (In alto a sx) ---
-    draw.text((40, 100), "OSEI FOOTBALL LEAGUE", font=f_super, fill=text_cyan)
-    draw.text((35, 160), "Risultati finali", font=f_main, fill=(255, 255, 255))
-    draw.text((40, 275), titolo_pulito, font=f_sub, fill=(255, 255, 255))
-    
-    # --- 2. ELENCO PARTITE CON LOGHI ---
-    y_start = 420
-    row_height = 100
-    spacing = 140
-    
-    import os 
-    
-    for i, m in enumerate(partite):
-        h, a = m['home'], m['away']
-        gh, ga = m.get('gol_home', 0), m.get('gol_away', 0)
-        y = y_start + (i * spacing)
+    if not calendario_dati:
+        return pd.DataFrame(), standings
         
-        # SFONDO RIGA PIÙ LARGO (da 40 a W-40 invece che da 90 a W-90)
-        draw.rectangle([40, y, W - 40, y + row_height], fill=row_color)
-        
-        # Parallelogramma bianco centrale 
-        hw = 90      
-        offset = 25  
-        
-        p1 = (540 - hw + offset, y)                 
-        p2 = (540 + hw + offset, y)                 
-        p3 = (540 + hw - offset, y + row_height)    
-        p4 = (540 - hw - offset, y + row_height)    
-        
-        draw.polygon([p1, p2, p3, p4], fill=(255, 255, 255))
-        draw.text((540, y + (row_height/2)), f"{gh} - {ga}", font=f_score, fill=row_color, anchor="mm")
-        
-        # COORDINATE LOGHI
-        x_logo_home = 540 - hw - 65
-        x_logo_away = 540 + hw + 65
-        
-        # Inserimento loghi
-        def paste_logo(team_name, x_center):
-            percorso = f"loghi/{team_name}.png"
-            try:
-                logo = Image.open(percorso).convert("RGBA")
-                logo = logo.resize((65, 65), Image.Resampling.LANCZOS)
-                pos = (int(x_center - 32), int(y + (row_height/2) - 32))
-                img.paste(logo, pos, logo)
-            except:
-                pass 
-                
-        paste_logo(h, x_logo_home)
-        paste_logo(a, x_logo_away)
-        
-        # TESTO SQUADRE (Distanziato correttamente dai loghi: 45 pixel dal centro del logo)
-        draw.text((x_logo_home - 45, y + (row_height/2)), h, font=f_squadre, fill=(255, 255, 255), anchor="rm")
-        draw.text((x_logo_away + 45, y + (row_height/2)), a, font=f_squadre, fill=(255, 255, 255), anchor="lm")
-        
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    for md in calendario_dati:
+        for m in md:
+            if m.get("giocata"):
+                h, a, gh, ga = m["home"], m["away"], m["gol_home"], m["gol_away"]
+                standings[h]["G"] += 1; standings[a]["G"] += 1
+                standings[h]["GF"] += gh; standings[h]["GS"] += ga
+                standings[a]["GF"] += ga; standings[a]["GS"] += gh
+                standings[h]["DR"] += (gh - ga); standings[a]["DR"] += (ga - gh)
+                if gh > ga: 
+                    standings[h]["Punti"] += 3; standings[h]["V"] += 1; standings[a]["P"] += 1
+                elif gh == ga: 
+                    standings[h]["Punti"] += 1; standings[a]["Punti"] += 1
+                    standings[h]["N"] += 1; standings[a]["N"] += 1
+                else: 
+                    standings[a]["Punti"] += 3; standings[a]["V"] += 1; standings[h]["P"] += 1
+                    
+    # Crea il DataFrame Pandas già ordinato per Punti, poi Differenza Reti, poi Gol Fatti
+    df_c = pd.DataFrame.from_dict(standings, orient='index').sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+    return df_c, standings
 
-def genera_grafica_mercato(tipo_op, squadra, giocatore, dett1, dett2):
-    W, H = 1080, 1080
+def disegna_partita(match, match_id, is_locked, is_admin):
+    """Componente visivo DRY universale per renderizzare una riga di partita (bloccata o editabile)."""
+    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+    c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['home']}</div>", unsafe_allow_html=True)
     
-    # Colori stile Transfermarkt / Sky Sport
-    bg_color = (0, 42, 92)        
-    box_color = (0, 20, 50)       
-    text_cyan = (0, 255, 200)     
-    
-    img = Image.new('RGB', (W, H), color=bg_color)
-    draw = ImageDraw.Draw(img)
-    
-    def get_font(size, is_bold=False):
-        try:
-            font_name = "arialbd.ttf" if is_bold else "arial.ttf"
-            return ImageFont.truetype(font_name, size)
-        except:
-            try:
-                font_name = "DejaVuSans-Bold.ttf" if is_bold else "DejaVuSans.ttf"
-                return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{font_name}", size)
-            except:
-                try: return ImageFont.load_default(size=size)
-                except: return ImageFont.load_default()
-
-    # --- DIMENSIONI RICALIBRATE ---
-    f_header_small = get_font(28, True)
-    f_header_big = get_font(52, True)  # Ridotto da 75 a 52 per non far uscire "TRASFERIMENTO"
-    f_player = get_font(65, True)      
-    f_label = get_font(22, False)      # Ridotto da 25 a 22
-    f_value = get_font(38, True)       # Ridotto da 50 a 38 per i nomi lunghi nelle colonne
-
-    # --- 1. HEADER ---
-    draw.text((W/2, 90), "O S E I   F O O T B A L L   L E A G U E", font=f_header_small, fill=text_cyan, anchor="mm")
-    draw.text((W/2, 160), tipo_op.upper(), font=f_header_big, fill=(255, 255, 255), anchor="mm")
-    
-    # --- 2. LOGO AL CENTRO ---
-    y_logo = 410 # Alzato leggermente
-    try:
-        logo = Image.open(f"loghi/{squadra}.png").convert("RGBA")
-        # Ridimensionato da 380 a 320 per dare più respiro
-        logo = logo.resize((320, 320), Image.Resampling.LANCZOS)
-        img.paste(logo, (int(W/2 - 160), int(y_logo - 160)), logo)
-    except:
-        draw.text((W/2, y_logo), squadra.upper(), font=get_font(55, True), fill=(255, 255, 255), anchor="mm")
-
-    # --- 3. BOX INFORMATIVO IN BASSO ---
-    box_y = 650 # Alzato di 30px per centrare meglio i testi
-    draw.rectangle([60, box_y, W - 60, H - 60], fill=box_color)
-    draw.rectangle([60, box_y, W - 60, box_y + 6], fill=text_cyan)
-    
-    # --- 4. NOME GIOCATORE ---
-    draw.text((W/2, box_y + 80), giocatore.upper(), font=f_player, fill=(255, 255, 255), anchor="mm")
-    draw.line([(W/2 - 320, box_y + 140), (W/2 + 320, box_y + 140)], fill=(50, 80, 130), width=2)
-    
-    # --- 5. COLONNE DETTAGLI ECONOMICI ---
-    def draw_column(testo, x_center):
-        if not testo: return
-        if ":" in testo:
-            label, val = testo.split(":", 1)
-            label = label.strip().upper()
-            val = val.strip().upper()
-        else:
-            label = "DETTAGLI"
-            val = testo.strip().upper()
-            
-        draw.text((x_center, box_y + 190), label, font=f_label, fill=text_cyan, anchor="mm")
-        draw.text((x_center, box_y + 245), val, font=f_value, fill=(255, 255, 255), anchor="mm")
-
-    if dett2:
-        draw_column(dett1, W/2 - 200) 
-        draw_column(dett2, W/2 + 200) 
-        draw.line([(W/2, box_y + 160), (W/2, box_y + 280)], fill=(50, 80, 130), width=2)
+    if is_locked:
+        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px; font-weight: bold;"
+        c2.markdown(f"<div style='{stile_box}'>{match.get('gol_home',0)}</div>", unsafe_allow_html=True)
+        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+        c4.markdown(f"<div style='{stile_box}'>{match.get('gol_away',0)}</div>", unsafe_allow_html=True)
+        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
     else:
-        draw_column(dett1, W/2)       
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+        # Se non è bloccata, mostra gli input
+        match['gol_home'] = c2.number_input("H", min_value=0, value=match.get('gol_home',0), key=f"{match_id}_h", disabled=not is_admin, label_visibility="collapsed")
+        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
+        match['gol_away'] = c4.number_input("A", min_value=0, value=match.get('gol_away',0), key=f"{match_id}_a", disabled=not is_admin, label_visibility="collapsed")
+        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
 
 # --- NUOVA FUNZIONE AUTOMATICA PER GLI INCASSI ---
 def assegna_incasso_stadio(nome_squadra, database, competizione, incasso_mln=1.0):
@@ -427,33 +320,39 @@ menu = st.sidebar.radio("Navigazione", [
     "6. Classifica Campionato",
     "7. Coppe (Italia & CL)",
     "8. Chiusura Fiscale Bilancio",
-    "9. Cronologia Ufficialità",
-    "10. Generazione Grafiche"
+    "9. Cronologia Ufficialità"
+    # "10. Generazione Grafiche"
 ])
 
+st.sidebar.divider()
+if st.sidebar.button("🔄 Sincronizza Dati", use_container_width=True):
+    force_sync()
+    st.rerun()
+
 # ==========================================
-# --- CARICAMENTO DATI OTTIMIZZATO (CLOUD) ---
+# --- CARICAMENTO DATI SUPER OTTIMIZZATO ---
 # ==========================================
-# Impostiamo variabili vuote di default
+# Ora usiamo get_data() che pesca dalla RAM a latenza zero!
+
 db, calendario, coppe = {}, [], {}
 
-# Scarica le SQUADRE (servono in quasi tutte le pagine, tranne il Regolamento)
 if menu != "9. Regolamento Ufficiale":
-    db = load_data(DB_PATH)
+    db = get_data(DB_PATH)
+    # Controllo chiavi mancanti (eseguito in locale)
     for sq in db.values():
         if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
             sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
         if "incassi_stadio" not in sq["bilancio"]["ricavi"]:
             sq["bilancio"]["ricavi"]["incassi_stadio"] = 0.0
 
-# Scarica il CALENDARIO
 if menu in ["5. Calendario & Partite", "6. Classifica Campionato", "8. Chiusura Fiscale Bilancio"]:
-    calendario = load_data(CAL_PATH)
+    calendario = get_data(CAL_PATH)
 
-# Scarica le COPPE
 if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)", "8. Chiusura Fiscale Bilancio"]:
-    coppe = load_data(COPPE_PATH)
-    if not coppe: coppe = init_coppe()
+    coppe = get_data(COPPE_PATH)
+    if not coppe: 
+        coppe = init_coppe()
+        save_data(coppe, COPPE_PATH)
 
 # Mettilo nella pagina principale, visibile sempre (o magari solo nel Menu 2 se preferisci)
 ultimi_movimenti = []
@@ -547,35 +446,19 @@ if menu == "1. Home Società":
         
         # ---> LA SOLUZIONE: FORZIAMO IL CARICAMENTO DEL CALENDARIO FRESCO <---
         try:
-            cal_aggiornato = load_data(CAL_PATH)
+            cal_aggiornato = get_data(CAL_PATH)
         except:
             cal_aggiornato = calendario
         
-        # Calcolo Statistiche in tempo reale per la Dashboard
-        stats = {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0}
-        standings = {s: {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0} for s in db.keys()}
+        df_c, standings = calcola_classifica(cal_aggiornato, db.keys())
         
-        # Ora usiamo 'cal_aggiornato' invece del vecchio 'calendario'
-        if cal_aggiornato:
-            for md in cal_aggiornato:
-                for m in md:
-                    if m.get("giocata"):
-                        h, a, gh, ga = m["home"], m["away"], m["gol_home"], m["gol_away"]
-                        standings[h]["GF"] += gh; standings[h]["GS"] += ga
-                        standings[a]["GF"] += ga; standings[a]["GS"] += gh
-                        standings[h]["DR"] += (gh - ga); standings[a]["DR"] += (ga - gh)
-                        if gh > ga: standings[h]["Punti"] += 3; standings[h]["V"] += 1
-                        elif gh == ga: standings[h]["Punti"] += 1; standings[a]["Punti"] += 1
-                        else: standings[a]["Punti"] += 3; standings[a]["V"] += 1
-            
-            # Calcola la Posizione Attuale
-            import pandas as pd
-            df_c = pd.DataFrame.from_dict(standings, orient='index').sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+        if not df_c.empty:
             squadre_ordinate = df_c.index.tolist()
             posizione_attuale = squadre_ordinate.index(sq_sel) + 1 if sq_sel in squadre_ordinate else 0
             stats = standings[sq_sel]
         else:
             posizione_attuale = 0
+            stats = {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0}
 
         # Disegniamo la riga delle Info Sportive
         col_c, col_co = st.columns(2)
@@ -1643,25 +1526,13 @@ elif menu == "5. Calendario & Partite":
                         # ==========================================
                         # VISTA "LOCKED" (GIORNATA GIÀ GIOCATA E SALVATA)
                         # ==========================================
-                        with st.container(border=True): # Mettiamo tutto in un bel box
+                        with st.container(border=True):
                             for idx, match in enumerate(giornata_dati):
-                                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                                 
-                                c1.markdown(f"<div style='text-align: right; margin-top: 6px; font-weight: bold; font-size: 16px;'>{match['home']}</div>", unsafe_allow_html=True)
+                                # ---> 1. RICHIAMO DELLA FUNZIONE DRY QUI! <---
+                                disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=True, is_admin=st.session_state.is_admin)
+                                st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) 
                                 
-                                # STILE CUSTOM PER I GOL SALVATI (Badge Verde brillante)
-                                stile_badge = "background-color: #10B981; color: white; border-radius: 6px; padding: 6px 0; text-align: center; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
-                                c2.markdown(f"<div style='{stile_badge}'>{match['gol_home']}</div>", unsafe_allow_html=True)
-                                
-                                c3.markdown("<div style='text-align: center; margin-top: 6px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                
-                                c4.markdown(f"<div style='{stile_badge}'>{match['gol_away']}</div>", unsafe_allow_html=True)
-                                
-                                c5.markdown(f"<div style='text-align: left; margin-top: 6px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
-                                
-                                st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) # spaziatura tra le partite
-                                
-                            # IL MESSAGGIO CHE SOSTITUISCE IL BOTTONE
                             st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali.")
                     
                     else:
@@ -1670,20 +1541,17 @@ elif menu == "5. Calendario & Partite":
                         # ==========================================
                         with st.form(f"giornata_{giornata_idx}"):
                             for idx, match in enumerate(giornata_dati):
-                                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                                 
-                                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['home']}</div>", unsafe_allow_html=True)
-                                gol_h = c2.number_input("H", min_value=0, value=match["gol_home"], key=f"g{giornata_idx}_h_{idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                gol_a = c4.number_input("A", min_value=0, value=match["gol_away"], key=f"g{giornata_idx}_a_{idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{match['away']}</div>", unsafe_allow_html=True)
+                                # ---> 2. RICHIAMO DELLA FUNZIONE DRY ANCHE QUI! <---
+                                disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=False, is_admin=st.session_state.is_admin)
 
                             if st.session_state.is_admin:
                                 if st.form_submit_button(f"Salva Risultati (G. {giornata_idx + 1})", type="primary"):
                                     gol_map = {}
                                     for idx, match in enumerate(giornata_dati):
-                                        gh = st.session_state[f"g{giornata_idx}_h_{idx}"]
-                                        ga = st.session_state[f"g{giornata_idx}_a_{idx}"]
+                                        # ---> 3. CHIAVI AGGIORNATE PER LEGGERE DALLA FUNZIONE <---
+                                        gh = st.session_state[f"g{giornata_idx}_{idx}_h"]
+                                        ga = st.session_state[f"g{giornata_idx}_{idx}_a"]
                                         
                                         match["gol_home"] = gh
                                         match["gol_away"] = ga
@@ -1691,11 +1559,11 @@ elif menu == "5. Calendario & Partite":
 
                                         if not match.get("incassi_assegnati", False):
                                             if gh > ga:
-                                                incasso = 2.0  # Vittoria in casa
+                                                incasso = 2.0  
                                             elif gh == ga:
-                                                incasso = 1.0  # Pareggio in casa
+                                                incasso = 1.0  
                                             else:
-                                                incasso = 0.5  # Sconfitta in casa
+                                                incasso = 0.5  
                                                 
                                             assegna_incasso_stadio(match["home"], db, f"G. {giornata_idx + 1} Camp.", incasso)
                                             match["incassi_assegnati"] = True
@@ -1718,23 +1586,11 @@ elif menu == "5. Calendario & Partite":
 # ==========================================
 elif menu == "6. Classifica Campionato":
     st.header("🏆 Classifica Campionato")
-    if not calendario: st.warning("Nessun calendario trovato.")
+    if not calendario:
+        st.warning("Nessun calendario trovato.")
     else:
-        standings = {s: {"Punti": 0, "G": 0, "V": 0, "N": 0, "P": 0, "GF": 0, "GS": 0, "DR": 0} for s in db.keys()}
-        for md in calendario:
-            for m in md:
-                if m["giocata"]:
-                    h, a, gh, ga = m["home"], m["away"], m["gol_home"], m["gol_away"]
-                    standings[h]["G"] += 1; standings[a]["G"] += 1
-                    standings[h]["GF"] += gh; standings[h]["GS"] += ga
-                    standings[a]["GF"] += ga; standings[a]["GS"] += gh
-                    standings[h]["DR"] += (gh - ga); standings[a]["DR"] += (ga - gh)
-                    if gh > ga: standings[h]["Punti"] += 3; standings[h]["V"] += 1; standings[a]["P"] += 1
-                    elif gh == ga: standings[h]["Punti"] += 1; standings[a]["Punti"] += 1; standings[h]["N"] += 1; standings[a]["N"] += 1
-                    else: standings[a]["Punti"] += 3; standings[a]["V"] += 1; standings[h]["P"] += 1
-                        
-        df_c = pd.DataFrame.from_dict(standings, orient='index').sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
-        
+        df_c, standings = calcola_classifica(calendario, db.keys())
+
         # --- TABELLA CLASSIFICA CUSTOM ---
         html_classifica = """
         <style>
@@ -1951,36 +1807,23 @@ elif menu == "7. Coppe (Italia & CL)":
             
             with st.container(border=True):
                 for i, m in enumerate(coppe["ci"]["quarti"]):
-                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                    c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
+                    
+                    # 1. RICHIAMO LA FUNZIONE MAGICA (Stampa i team e i gol)
+                    disegna_partita(m, match_id=f"ci_q_{i}", is_locked=quarti_salvati, is_admin=st.session_state.is_admin)
+                    
+                    # 2. SELETTORE DEL VINCITORE (Sotto alla partita)
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     
                     if quarti_salvati:
-                        # STILE BOX BLOCCATO NEUTRO (Grigio chiaro, non verde)
-                        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
-                        c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                        # Menu a tendina sparito, sostituito da testo semplice
                         c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa il turno: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                     else:
-                        m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key=f"ci_q_h_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key=f"ci_q_a_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                         opzioni = ["-", m['home'], m['away']]
                         default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
                         scelta = c_passa.selectbox("Passa il turno:", opzioni, index=default_idx, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
                         m['vincente'] = scelta if scelta != "-" else None
                     
-                    # Se NON è l'ultima partita, metti la riga
                     if i < len(coppe["ci"]["quarti"]) - 1:
                         st.divider()
-                    # Se è l'ultima partita, metti solo uno spazio invisibile
                     else:
                         st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
             
@@ -2011,25 +1854,15 @@ elif menu == "7. Coppe (Italia & CL)":
             
             with st.container(border=True):
                 for i, m in enumerate(coppe["ci"]["semis"]):
-                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                    c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
                     
+                    # 1. RICHIAMO DELLA FUNZIONE DRY
+                    disegna_partita(m, match_id=f"ci_s_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                    
+                    # 2. SELETTORE VINCITORE
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     if semis_salvate:
-                        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
-                        c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                         c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                     else:
-                        m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key=f"ci_s_h_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key=f"ci_s_a_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                         opzioni = ["-", m['home'], m['away']]
                         default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
                         scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
@@ -2067,25 +1900,15 @@ elif menu == "7. Coppe (Italia & CL)":
             
             with st.container(border=True):
                 m = coppe["ci"]["finale"][0]
-                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
                 
+                # 1. RICHIAMO DELLA FUNZIONE DRY
+                disegna_partita(m, match_id="ci_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
+                
+                # 2. SELETTORE VINCITORE
+                _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                 if finale_salvata:
-                    stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
-                    c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                    c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                    
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                 else:
-                    m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key="ci_f_h", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                    m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key="ci_f_a", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                    
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     opzioni = ["-", m['home'], m['away']]
                     default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
                     scelta = c_passa.selectbox("VINCITORE Coppa Italia:", opzioni, index=default_idx, key="ci_f_v", disabled=not st.session_state.is_admin)
@@ -2267,7 +2090,7 @@ elif menu == "7. Coppe (Italia & CL)":
             
             gironi_salvati = coppe["cl"].get("gironi_salvati", False)
             
-            # --- CALCOLO DINAMICO PUNTI E STATISTICHE (DR, GF) ---
+            # --- CALCOLO DINAMICO PUNTI E STATISTICHE ---
             stats_A = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_A"]}
             stats_B = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_B"]}
             
@@ -2275,71 +2098,32 @@ elif menu == "7. Coppe (Italia & CL)":
                 for md in calendario:
                     for m in md:
                         if m.get("giocata", False):
-                            gh = m["gol_home"]
-                            ga = m["gol_away"]
-                            
-                            # Aggiunge Gol Fatti e Subiti
+                            gh, ga = m["gol_home"], m["gol_away"]
                             dict_stats[m["home"]]["GF"] += gh
                             dict_stats[m["home"]]["GS"] += ga
                             dict_stats[m["away"]]["GF"] += ga
                             dict_stats[m["away"]]["GS"] += gh
-                            
-                            # Calcola i Punti
                             if gh > ga: dict_stats[m["home"]]["Punti"] += 3
                             elif gh == ga: 
                                 dict_stats[m["home"]]["Punti"] += 1
                                 dict_stats[m["away"]]["Punti"] += 1
                             else: dict_stats[m["away"]]["Punti"] += 3
-                            
-                # Calcola Differenza Reti per ogni squadra
                 for t, stats in dict_stats.items():
                     stats["DR"] = stats["GF"] - stats["GS"]
                             
             calcola_stats(coppe["cl"].get("cal_A", []), stats_A)
             calcola_stats(coppe["cl"].get("cal_B", []), stats_B)
             
-            # Creazione Dataframe e Ordinamento Regolamento: Punti -> Differenza Reti -> Gol Fatti
             df_A = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_A.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
             df_B = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_B.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
 
-            # --- TABELLA CLASSIFICA GIRONI CUSTOM ---
             st.markdown("""
             <style>
-            .tabella-gironi {
-                border-collapse: collapse;
-                width: 100%;
-                background-color: white;
-                border-radius: 10px;
-                overflow: hidden;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-                font-family: sans-serif;
-                margin-bottom: 20px;
-                border: 1px solid #E2E8F0;
-            }
-            .tabella-gironi th {
-                background-color: #F8FAFC;
-                color: #64748B;
-                padding: 12px 15px;
-                font-size: 13px;
-                text-align: center;
-                border-bottom: 2px solid #E2E8F0;
-            }
-            .tabella-gironi td {
-                padding: 12px 15px;
-                font-size: 14px;
-                color: #334155;
-                text-align: center;
-                border-bottom: 1px solid #F1F5F9;
-            }
-            .tabella-gironi th:first-child, .tabella-gironi td:first-child {
-                text-align: left;
-            }
-            .tabella-gironi tr:last-child td {
-                border-bottom: none;
-            }
-            .tabella-gironi tr:hover {
-                background-color: #F1F5F9;
-            }
+            .tabella-gironi { border-collapse: collapse; width: 100%; background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); font-family: sans-serif; margin-bottom: 20px; border: 1px solid #E2E8F0; }
+            .tabella-gironi th { background-color: #F8FAFC; color: #64748B; padding: 12px 15px; font-size: 13px; text-align: center; border-bottom: 2px solid #E2E8F0; }
+            .tabella-gironi td { padding: 12px 15px; font-size: 14px; color: #334155; text-align: center; border-bottom: 1px solid #F1F5F9; }
+            .tabella-gironi th:first-child, .tabella-gironi td:first-child { text-align: left; }
+            .tabella-gironi tr:hover { background-color: #F1F5F9; }
             </style>
             """, unsafe_allow_html=True)
 
@@ -2353,30 +2137,23 @@ elif menu == "7. Coppe (Italia & CL)":
                 html_A += "</table>"
                 st.markdown(html_A, unsafe_allow_html=True)
                 
-                with st.expander("Calendario Girone A" if gironi_salvati else "Calendario Girone A"):
+                with st.expander("Calendario Girone A"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
                         gior = 2
                         st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
                         for m_idx, m in enumerate(md):
-                            c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
-                            c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
-                            
-                            # LA MAGIA: Se i gironi sono archiviati, OPPURE se questa singola partita ha la spunta, la blocchiamo!
                             partita_bloccata = gironi_salvati or m.get("giocata", False)
                             
-                            if partita_bloccata:
-                                c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
-                                # Sostituiamo la checkbox interattiva con una semplice icona di conferma
-                                c6.markdown("<div style='margin-top: 8px;' title='Giocata e Archiviata'>✅</div>", unsafe_allow_html=True)
-                            else:
-                                m["gol_home"] = c2.number_input("H", value=m.get("gol_home", 0), key=f"cl_a_gh_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
-                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                m["gol_away"] = c4.number_input("A", value=m.get("gol_away", 0), key=f"cl_a_ga_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
-                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
-                                m["giocata"] = c6.checkbox("✅", value=m.get("giocata", False), key=f"cl_a_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin)
+                            # Magia delle colonne nidificate per aggiungere la checkbox
+                            c_partita, c_spunta = st.columns([9, 1])
+                            with c_partita:
+                                disegna_partita(m, match_id=f"cl_a_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
+                            with c_spunta:
+                                st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                                if partita_bloccata:
+                                    st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
+                                else:
+                                    m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_a_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
                         st.divider()
             
             with colB:
@@ -2387,43 +2164,33 @@ elif menu == "7. Coppe (Italia & CL)":
                 html_B += "</table>"
                 st.markdown(html_B, unsafe_allow_html=True)
                 
-                with st.expander("Calendario Girone B" if gironi_salvati else "Calendario Girone B"):
+                with st.expander("Calendario Girone B"):
                     for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
                         gior = 2
                         st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
                         for m_idx, m in enumerate(md):
-                            c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 0.5, 1, 3, 1])
-                            c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold;'>{m['home']}</div>", unsafe_allow_html=True)
-                            
                             partita_bloccata = gironi_salvati or m.get("giocata", False)
                             
-                            if partita_bloccata:
-                                c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
-                                c6.markdown("<div style='margin-top: 8px;' title='Giocata e Archiviata'>✅</div>", unsafe_allow_html=True)
-                            else:
-                                m["gol_home"] = c2.number_input("H", value=m.get("gol_home", 0), key=f"cl_b_gh_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
-                                c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                                m["gol_away"] = c4.number_input("A", value=m.get("gol_away", 0), key=f"cl_b_ga_{g_idx}_{m_idx}", label_visibility="collapsed", disabled=not st.session_state.is_admin)
-                                c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold;'>{m['away']}</div>", unsafe_allow_html=True)
-                                m["giocata"] = c6.checkbox("✅", value=m.get("giocata", False), key=f"cl_b_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin)
+                            c_partita, c_spunta = st.columns([9, 1])
+                            with c_partita:
+                                disegna_partita(m, match_id=f"cl_b_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
+                            with c_spunta:
+                                st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                                if partita_bloccata:
+                                    st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
+                                else:
+                                    m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_b_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
                         st.divider()
 
             if st.session_state.is_admin:
                 if not gironi_salvati:
-                    # Dividiamo lo spazio in due bottoni
                     btn_salva, btn_archivia = st.columns(2)
-                    
-                    # Bottone 1: Salva i progressi giornata per giornata
                     if btn_salva.button("💾 Salva Risultati Parziali", type="secondary", use_container_width=True, key="btn_salva_cl"):
                         save_data(coppe, COPPE_PATH)
                         verifica_obiettivi_dinamici()
                         st.success("Risultati parziali salvati!.")
                         st.rerun()
                         
-                    # Bottone 2: Blocca tutto alla fine
                     if btn_archivia.button("🔒 Archivia Gironi Champions League", type="primary", use_container_width=True, key="btn_archivia_cl"):
                         coppe["cl"]["gironi_salvati"] = True
                         save_data(coppe, COPPE_PATH)
@@ -2449,45 +2216,18 @@ elif menu == "7. Coppe (Italia & CL)":
                     ma = coppe["cl"]["semis_andata"][i]
                     mr = coppe["cl"]["semis_ritorno"][i]
                     
-                    st.markdown(f"<h5 style='text-align: center; color: #1E293B;'> {ma['home']} vs {ma['away']}</h5>", unsafe_allow_html=True)
+                    st.markdown(f"<h5 style='text-align: center; color: #1E293B; margin-bottom: 10px;'> {ma['home']} vs {ma['away']}</h5>", unsafe_allow_html=True)
                     
+                    st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-bottom: -10px;'>✈️ Andata (G. 22)</div>", unsafe_allow_html=True)
+                    disegna_partita(ma, match_id=f"cl_s_a_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                    
+                    st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-top: 15px; margin-bottom: -10px;'>🏠 Ritorno (G. 25)</div>", unsafe_allow_html=True)
+                    disegna_partita(mr, match_id=f"cl_s_r_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                    
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     if semis_salvate:
-                        # ANDATA BLOCCATA
-                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata (G. 22): <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
-                        c2.markdown(f"<div style='{stile_box}'>{ma['gol_home']}</div>", unsafe_allow_html=True)
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        c4.markdown(f"<div style='{stile_box}'>{ma['gol_away']}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{ma['away']}</b></div>", unsafe_allow_html=True)
-                        
-                        # RITORNO BLOCCATO
-                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno (G. 25): <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
-                        c2.markdown(f"<div style='{stile_box}'>{mr['gol_home']}</div>", unsafe_allow_html=True)
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        c4.markdown(f"<div style='{stile_box}'>{mr['gol_away']}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{mr['away']}</b></div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                         c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{mr.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                     else:
-                        # ANDATA EDITABILE
-                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>✈️ Andata (G. 22): <b style='font-size: 16px;'>{ma['home']}</b></div>", unsafe_allow_html=True)
-                        ma['gol_home'] = c2.number_input("H", value=ma.get('gol_home',0), key=f"cl_s_ah_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        ma['gol_away'] = c4.number_input("A", value=ma.get('gol_away',0), key=f"cl_s_aa_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{ma['away']}</b></div>", unsafe_allow_html=True)
-
-                        # RITORNO EDITABILE
-                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                        c1.markdown(f"<div style='text-align: right; margin-top: 8px;'>🏠 Ritorno (G. 25): <b style='font-size: 16px;'>{mr['home']}</b></div>", unsafe_allow_html=True)
-                        mr['gol_home'] = c2.number_input("H", value=mr.get('gol_home',0), key=f"cl_s_rh_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                        mr['gol_away'] = c4.number_input("A", value=mr.get('gol_away',0), key=f"cl_s_ra_{i}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        c5.markdown(f"<div style='text-align: left; margin-top: 8px;'><b style='font-size: 16px;'>{mr['away']}</b></div>", unsafe_allow_html=True)
-                        
-                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                         opzioni = ["-", ma['home'], ma['away']]
                         default_idx = opzioni.index(mr.get('vincente')) if mr.get('vincente') in opzioni else 0
                         scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
@@ -2513,7 +2253,6 @@ elif menu == "7. Coppe (Italia & CL)":
                     st.info("🔒 **Semifinali archiviate.**")
                     if not coppe["cl"]["finale"] and st.button("Genera Finale Champions League", type="primary"):
                         vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
-                        
                         perdenti = []
                         for i in range(2):
                             ma = coppe["cl"]["semis_andata"][i]
@@ -2532,24 +2271,13 @@ elif menu == "7. Coppe (Italia & CL)":
             
             with st.container(border=True):
                 m = coppe["cl"]["finale"][0]
-                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                c1.markdown(f"<div style='text-align: right; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['home']}</div>", unsafe_allow_html=True)
                 
+                disegna_partita(m, match_id="cl_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
+                
+                _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                 if finale_salvata:
-                    c2.markdown(f"<div style='{stile_box}'>{m['gol_home']}</div>", unsafe_allow_html=True)
-                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                    c4.markdown(f"<div style='{stile_box}'>{m['gol_away']}</div>", unsafe_allow_html=True)
-                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                    
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE CL: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                 else:
-                    m['gol_home'] = c2.number_input("H", value=m.get('gol_home',0), key="cl_f_h", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                    c3.markdown("<div style='text-align: center; margin-top: 8px; font-weight: bold;'>-</div>", unsafe_allow_html=True)
-                    m['gol_away'] = c4.number_input("A", value=m.get('gol_away',0), key="cl_f_a", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                    c5.markdown(f"<div style='text-align: left; margin-top: 8px; font-weight: bold; font-size: 16px;'>{m['away']}</div>", unsafe_allow_html=True)
-                    
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
                     opzioni = ["-", m['home'], m['away']]
                     default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
                     scelta = c_passa.selectbox("VINCITORE Champions League:", opzioni, index=default_idx, key="cl_f_v", disabled=not st.session_state.is_admin)
@@ -2913,114 +2641,3 @@ elif menu == "9. Cronologia Ufficialità":
             
             html_feed += "</div>"
             st.markdown(html_feed, unsafe_allow_html=True)
-
-# ==========================================
-# 10. GENERATORE DI GRAFICHE
-# ==========================================
-elif menu == "10. Generazione Grafiche":
-    st.header("📸 Grafiche OFL")
-    
-    try: cal_aggiornato = load_data(CAL_PATH)
-    except: cal_aggiornato = calendario
-    try: coppe_aggiornate = load_data(COPPE_PATH)
-    except: coppe_aggiornate = coppe
-
-    tipo_grafica = st.radio("Scegli la tipologia di grafica", ["⚽ Risultati Partite", "🤝 Operazioni di Mercato"], horizontal=True)
-    st.divider()
-
-    # --- SEZIONE RISULTATI (Esistente) ---
-    if tipo_grafica == "⚽ Risultati Partite":
-        comp = st.selectbox("Seleziona la Competizione", ["Seleziona...", "Campionato", "Coppa Italia", "Champions League"])
-        partite_da_disegnare = []
-        titolo_grafica = ""
-        
-        if comp == "Campionato":
-            if not cal_aggiornato: st.warning("Il calendario non è ancora stato generato.")
-            else:
-                giornate = [f"Giornata {i+1}" for i in range(len(cal_aggiornato))]
-                gs = st.selectbox("Turno", giornate)
-                partite_da_disegnare = cal_aggiornato[int(gs.split(" ")[1]) - 1]
-                titolo_grafica = f"Risultati {gs}"
-                
-        elif comp == "Coppa Italia":
-            fasi = [f for f, k in zip(["Quarti di Finale", "Semifinali", "Finale"], ["quarti", "semis", "finale"]) if coppe_aggiornate.get("ci", {}).get(k)]
-            if not fasi: st.warning("Nessuna partita disputata.")
-            else:
-                fs = st.selectbox("Turno", fasi)
-                chiave = {"Quarti di Finale": "quarti", "Semifinali": "semis", "Finale": "finale"}[fs]
-                partite_da_disegnare = coppe_aggiornate["ci"][chiave]
-                titolo_grafica = f"Coppa Italia - {fs}"
-                
-        elif comp == "Champions League":
-            fasi = []
-            if coppe_aggiornate.get("cl", {}).get("cal_A"): fasi += [f"Gironi - Giornata {i+1}" for i in range(len(coppe_aggiornate["cl"]["cal_A"]))]
-            if coppe_aggiornate.get("cl", {}).get("semis_andata"): fasi += ["Semifinali Andata", "Semifinali Ritorno"]
-            if coppe_aggiornate.get("cl", {}).get("finale"): fasi += ["Finale"]
-            if not fasi: st.warning("Nessuna partita disputata.")
-            else:
-                fs = st.selectbox("Turno", fasi)
-                if "Gironi" in fs:
-                    i = int(fs.split("Giornata ")[1]) - 1
-                    partite_da_disegnare = coppe_aggiornate["cl"]["cal_A"][i] + coppe_aggiornate["cl"]["cal_B"][i]
-                else:
-                    chiave = {"Semifinali Andata": "semis_andata", "Semifinali Ritorno": "semis_ritorno", "Finale": "finale"}[fs]
-                    partite_da_disegnare = coppe_aggiornate["cl"][chiave]
-                titolo_grafica = f"Champions League - {fs}"
-                
-        if partite_da_disegnare:
-            if st.button("🎨 Genera Grafica Risultati", type="primary", use_container_width=True):
-                img_bytes = genera_grafica_risultati(titolo_grafica, partite_da_disegnare)
-                st.success("✅ Grafica generata con successo!")
-                col_img, col_btn = st.columns([1, 2])
-                with col_img: st.image(img_bytes, use_container_width=True) 
-                with col_btn:
-                    st.download_button("📸 Scarica Immagine PNG", img_bytes, f"OFL_{titolo_grafica.replace(' ', '_')}.png", "image/png", type="primary")
-
-    # --- NUOVA SEZIONE MERCATO ---
-    else:
-        tipo_op = st.selectbox("Tipologia Operazione", ["Acquisto Definitivo", "Trasferimento", "Rinnovo Contrattuale", "Prestito", "Riscatto Prestito", "Svincolo"])
-        sq = st.selectbox("Squadra Coinvolta", list(db.keys()))
-        gioc = st.text_input("Nome Giocatore")
-        
-        c1, c2 = st.columns(2)
-        dett1, dett2 = "", ""
-        
-        if tipo_op == "Acquisto Definitivo":
-            costo = c1.number_input("Costo Cartellino (M)", min_value=0.0, step=1.0)
-            anni = c2.number_input("Anni di contratto", min_value=1, step=1)
-            dett1 = f"Costo acquisto: {costo} M"
-            dett2 = f"Contratto: {anni} anni"
-        elif tipo_op == "Trasferimento":
-            costo = c1.number_input("Cifra di cessione (M)", min_value=0.0, step=1.0)
-            sq2 = c2.text_input("Acquistato da")
-            dett1 = f"Costo acquisto: {costo} M"
-            dett2 = f"Provenienza: {sq2}" if sq2 else ""
-        elif tipo_op == "Rinnovo Contrattuale":
-            anni = c1.number_input("Estensione di", min_value=1, step=1)
-            stipendio = c2.number_input("Nuovo stipendio (M)", min_value=0.0, step=0.1)
-            dett1 = f"Nuova durata: {anni} anni"
-            dett2 = f"Nuovo Ingaggio: {stipendio} M"
-        elif tipo_op == "Prestito":
-            formula = c1.selectbox("Formula", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
-            sq2 = c2.selectbox("In prestito da", [s for s in db.keys() if s != sq])
-            dett1 = f"Formula: {formula}"
-            dett2 = f"In prestito da: {sq2}"
-        elif tipo_op == "Riscatto Prestito":
-            costo = c1.number_input("Cifra di Riscatto (M)", min_value=0.0, step=1.0)
-            sq2 = c2.selectbox("Riscattato dal", [s for s in db.keys() if s != sq])
-            dett1 = f"Riscattato per: {costo} M"
-            dett2 = f"Squadra origine: {sq2}"
-        elif tipo_op == "Svincolo":
-            dett1 = "Risoluzione Anticipata"
-            dett2 = "Svincolato nel mercato libero"
-
-        if st.button("🎨 Genera Grafica Mercato", type="primary", use_container_width=True):
-            if not gioc:
-                st.error("Inserisci il nome del giocatore!")
-            else:
-                img_bytes = genera_grafica_mercato(tipo_op, sq, gioc, dett1, dett2)
-                st.success("✅ Grafica generata con successo!")
-                col_img, col_btn = st.columns([1, 2])
-                with col_img: st.image(img_bytes, use_container_width=True) 
-                with col_btn:
-                    st.download_button("📸 Scarica Immagine PNG", img_bytes, f"OFL_Mercato_{gioc}.png", "image/png", type="primary")
