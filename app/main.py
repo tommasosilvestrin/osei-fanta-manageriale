@@ -808,7 +808,7 @@ elif menu == "2. Dashboard & Rosa":
         m2.metric("🟢 Ricavi", f"{tot_ricavi:.2f} M")
         m3.metric("🔴 Costi", f"{tot_costi:.2f} M")
         m4.metric("⚖️ Utile", f"{utile:.2f} M", delta="Bilancio Sano" if utile >= 0 else "Rischio Multa", delta_color="normal" if utile >= 0 else "inverse")
-        st.write("") 
+        st.write("")
 
         # ==========================================
         # RIGA 2: ROSTER (sx) + WIDGETS MANAGERIALI (dx)
@@ -961,10 +961,23 @@ elif menu == "3. Mercato (Definitivi)":
                     anni_effettivi = anni - 0.5 if is_gennaio else anni
                     amm = c / anni_effettivi if anni_effettivi > 0 else c
                     
-                    if is_gennaio:
-                        st.info(f"💡 Durata Effettiva: {anni_effettivi} anni. | Stipendio Annuo Base: {s_base}M | Ammortamento Annuo Base: {amm:.2f}M.\n(Per i 6 mesi correnti pagherai la METÀ: {amm/2:.2f}M di ammortamento e {s_base/2:.2f}M di stipendio).")
-                    else:
-                        st.info(f"💡 Dati Contratto: Stipendio {s_base}M | Ammortamento {amm:.2f}M annui.")
+                    # ==========================================
+                    # --- SCONTRINO UFFICIALE (ACQUISTI / ASTA) ---
+                    # ==========================================
+                    nota_gen_acq = " <i>(impatto finanziario dimezzato per i 6 mesi correnti)</i>" if is_gennaio else ""
+                    amm_effettivo_stampa = amm / 2 if is_gennaio else amm
+                    stip_effettivo_stampa = s_base / 2 if is_gennaio else s_base
+
+                    scontrino_acq_html = f"""<div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #10B981; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+<div style='font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Nuovo Ingaggio</div>
+L'acquisizione a titolo definitivo di <b style='color: #0F172A; font-size: 17px;'>{n if n else '[Nome Giocatore]'}</b> da parte di <b>{sq_acq_name}</b> richiederà un'uscita di cassa pari a <b style='color: #10B981; font-size: 17px;'>{c:.2f} M</b>.<br><br>
+<ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+<li style='margin-bottom: 6px;'><b>Durata Accordo:</b> <b>{anni_effettivi} anni</b> ({anni} anni nominali{'' if not is_gennaio else ' con finestra invernale'}).</li>
+<li style='margin-bottom: 6px;'><b>Impatto a Bilancio:</b> Stipendio annuo di <b>{s_base:.2f} M</b> e ammortamento di <b>{amm:.2f} M</b> annui{nota_gen_acq}.</li>
+<li><b>Costi Prima Stagione:</b> Pesa complessivamente per <b>{amm_effettivo_stampa + stip_effettivo_stampa:.2f} M</b> sulle finanze correnti del club.</li>
+</ul>
+</div>"""
+                    st.markdown(scontrino_acq_html, unsafe_allow_html=True)
                     
                     if st.button("Conferma Acquisto", type="primary"):
                         if c > sq_acq['cassa']: 
@@ -991,10 +1004,10 @@ elif menu == "3. Mercato (Definitivi)":
                     st.warning("⚠️ Servono almeno due squadre per poter effettuare trasferimenti di mercato.")
                 else:
                     col_ced, col_comp = st.columns(2)
-                    sq_ced_name = col_ced.selectbox("📤 Società Cedente", list(db.keys()), key="tab2_sq_ced")
+                    sq_ced_name = col_ced.selectbox("📤 Seleziona Squadra Cedente", list(db.keys()), key="tab2_sq_ced")
                     
                     squadre_acquirenti = [s for s in db.keys() if s != sq_ced_name]
-                    sq_comp_name = col_comp.selectbox("📥 Società Acquirente", squadre_acquirenti, key="tab2_sq_comp")
+                    sq_comp_name = col_comp.selectbox("📥 Seleziona Squadra Acquirente", squadre_acquirenti, key="tab2_sq_comp")
                     
                     sq_ced = db[sq_ced_name]
                     sq_comp = db[sq_comp_name]
@@ -1044,32 +1057,32 @@ elif menu == "3. Mercato (Definitivi)":
 
                                     diff_plus_minus = prezzo_v - val_res_effettivo
                                     
-                                    st.markdown("##### 📊 Impatto Finanziario")
-                                    col_out, col_in = st.columns(2)
+                                    diff_plus_minus = prezzo_v - val_res_effettivo
                                     
-                                    with col_out:
-                                        with st.container(border=True):
-                                            st.markdown(f"**📤 {sq_ced_name}**")
-                                            st.write(f"- Valore Residuo Attuale: **{val_res_effettivo:.2f} M**")
-                                            st.write(f"- Cassa: **+{prezzo_v:.2f} M**")
-                                            if diff_plus_minus > 0:
-                                                st.markdown(f"- Impatto a Bilancio: <span style='color: #10B981; font-weight: bold;'>Plusvalenza di +{diff_plus_minus:.2f} M</span>", unsafe_allow_html=True)
-                                            elif diff_plus_minus < 0:
-                                                st.markdown(f"- Impatto a Bilancio: <span style='color: #EF4444; font-weight: bold;'>Minusvalenza di {diff_plus_minus:.2f} M</span>", unsafe_allow_html=True)
-                                            else:
-                                                st.markdown("- Impatto a Bilancio: **Pari (Nessuna plus/minusvalenza)**")
-                                            
-                                    with col_in:
-                                        with st.container(border=True):
-                                            st.markdown(f"**📥 {sq_comp_name}**")
-                                            st.write(f"- Costo d'Acquisto: **-{prezzo_v:.2f} M**")
-                                            st.write(f"- Nuovo Ammortamento: **{amm_nuovo:.2f} M** annui")
-                                            st.write(f"- Nuovo Stipendio: **{s_base_nuovo:.2f} M** annui")
-                                            if is_gennaio:
-                                                st.caption(f"*(Per i 6 mesi correnti l'impatto a bilancio sarà dimezzato)*")
+                                    # ==========================================
+                                    # --- SCONTRINO UFFICIALE (RIEPILOGO) ---
+                                    # ==========================================
+                                    if diff_plus_minus > 0:
+                                        plus_minus_text = f"<span style='color: #10B981; font-weight: bold;'>Plusvalenza di +{diff_plus_minus:.2f} M</span>"
+                                    elif diff_plus_minus < 0:
+                                        plus_minus_text = f"<span style='color: #EF4444; font-weight: bold;'>Minusvalenza di {diff_plus_minus:.2f} M</span>"
+                                    else:
+                                        plus_minus_text = "<b>Pariaggio a bilancio</b> (Nessuna plus/minusvalenza)"
+                                        
+                                    nota_invernale = " <i>(impatto dimezzato per i 6 mesi correnti)</i>" if is_gennaio else ""
 
-                                    st.write("")
-                                    
+                                    scontrino_html = f"""
+                                    <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #2563EB; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 20px; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+                                        <div style='font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Operazione</div>
+                                        L'operazione prevede il passaggio a titolo definitivo di <b style='color: #0F172A; font-size: 17px;'>{g_obj['nome']}</b> dal <b>{sq_ced_name}</b> al <b>{sq_comp_name}</b> per la cifra di <b style='color: #2563EB; font-size: 17px;'>{prezzo_v:.2f} M</b>.<br><br>
+                                        <ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+                                            <li style='margin-bottom: 8px;'><b>Impatto {sq_comp_name} (Acquirente):</b> Il giocatore firma un accordo di <b>{anni_effettivi_nuovi} anni</b>, con uno stipendio di <b>{s_base_nuovo:.2f} M</b> e un ammortamento annuo di <b>{amm_nuovo:.2f} M</b>{nota_invernale}.</li>
+                                            <li><b>Impatto {sq_ced_name} (Cedente):</b> La vendita genera una {plus_minus_text} per la società cedente, a fronte di un valore residuo attuale del cartellino di <b>{val_res_effettivo:.2f} M</b>.</li>
+                                        </ul>
+                                    </div>
+                                    """
+                                    st.markdown(scontrino_html, unsafe_allow_html=True)
+                                                                        
                                     if st.button("Conferma Trasferimento", type="primary", key="btn_conferma_trasf"):
                                         if prezzo_v > sq_comp['cassa']:
                                             st.error(f"❌ Operazione annullata: {sq_comp_name} non ha fondi sufficienti ({sq_comp['cassa']:.2f} M in cassa).")
@@ -1330,25 +1343,43 @@ elif menu == "4. Mercato (Prestiti)":
                     stip_acq = stip_totale * (perc_stipendio / 100)
                     stip_ced = stip_totale * ((100 - perc_stipendio) / 100)
                     
-                html_prospetto = f"""
-                <div style='background-color: white; border-radius: 8px; padding: 15px; border: 1px solid #E2E8F0; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);'>
-                    <div style='color: #64748B; font-size: 13px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase;'>📊 Impatto Finanziario Stagione Corrente</div>
-                    <div style='display: flex; justify-content: space-between;'>
-                        <div style='text-align: left;'>
-                            <div style='color: #94A3B8; font-size: 12px;'>Ammortamento ({sq_cedente})</div>
-                            <div style='color: #EF4444; font-weight: bold; font-size: 16px;'>{amm_totale:.2f} M</div>
-                        </div>
-                        <div style='text-align: center;'>
-                            <div style='color: #94A3B8; font-size: 12px;'>Stipendio a carico ({sq_cedente})</div>
-                            <div style='color: #10B981; font-weight: bold; font-size: 16px;'>{stip_ced:.2f} M</div>
-                        </div>
-                        <div style='text-align: right;'>
-                            <div style='color: #94A3B8; font-size: 12px;'>Stipendio a carico ({sq_acquirente})</div>
-                            <div style='color: #F59E0B; font-weight: bold; font-size: 16px;'>{stip_acq:.2f} M</div>
-                        </div>
-                    </div>
-                </div>
-                """
+                # ==========================================
+                # --- SPLIT-BAR DINAMICA STIPENDIO ---
+                # ==========================================
+                # Colori: Blu per chi cede, Arancione per chi compra
+                color_ced = "#3B82F6"
+                color_acq = "#F59E0B"
+                
+                perc_cedente = 100 - perc_stipendio
+                
+                html_prospetto = f"""<div style='margin-top: 15px; margin-bottom: 25px; padding: 20px; background-color: white; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.03);'>
+<div style='text-align: center; font-size: 18px; font-weight: bold; color: #475569; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.5px;'>
+📊 Suddivisione Ingaggio Stagione Corrente
+</div>
+
+<div style='display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;'>
+<div style='color: {color_ced}; font-weight: bold;'>
+📤 {sq_cedente}: {stip_ced:.3f} M
+</div>
+<div style='color: {color_acq}; font-weight: bold;'>
+📥 {sq_acquirente}: {stip_acq:.3f} M
+</div>
+</div>
+
+<div style='display: flex; height: 16px; border-radius: 8px; overflow: hidden; background-color: #E2E8F0;'>
+<div style='width: {perc_cedente}%; background-color: {color_ced}; transition: width 0.3s ease;'></div>
+<div style='width: {perc_stipendio}%; background-color: {color_acq}; transition: width 0.3s ease;'></div>
+</div>
+
+<div style='display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: #64748B; font-weight: bold;'>
+<div>{perc_cedente}% a carico</div>
+<div>{perc_stipendio}% a carico</div>
+</div>
+
+<div style='margin-top: 20px; text-align: center; font-size: 15px; color: #475569; border-top: 1px dashed #E2E8F0; padding-top: 18px;'>
+⚠️ <b>L'Ammortamento di {amm_totale:.2f} M</b> resta interamente a carico di <b>{sq_cedente}</b>.
+</div>
+</div>"""
                 st.markdown(html_prospetto, unsafe_allow_html=True)
 
                 col_on, col_tipo, col_cifra = st.columns(3)
