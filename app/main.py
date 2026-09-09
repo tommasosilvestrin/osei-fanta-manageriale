@@ -321,7 +321,7 @@ menu = st.sidebar.radio("Navigazione", [
     "7. Coppe (Italia & CL)",
     "8. Chiusura Fiscale Bilancio",
     "9. Cronologia Ufficialità"
-    # "10. Generazione Grafiche"
+    # "10. Cruscotto Asta Live"
 ])
 
 st.sidebar.divider()
@@ -439,12 +439,12 @@ if menu == "1. Home Società":
 
     st.divider()
 
-    # --- 2. UFFICIO DEL PRESIDENTE (Statistiche e Sponsor) ---
+    # --- 2. UFFICIO DEL PRESIDENTE (Dashboard Sportiva e Sponsor) ---
     if db:
         sq_sel = st.selectbox("Seleziona Squadra", list(db.keys()))
         sq_dati = db[sq_sel]
         
-        # ---> LA SOLUZIONE: FORZIAMO IL CARICAMENTO DEL CALENDARIO FRESCO <---
+        # --- CARICAMENTO DATI ---
         try:
             cal_aggiornato = get_data(CAL_PATH)
         except:
@@ -460,125 +460,177 @@ if menu == "1. Home Società":
             posizione_attuale = 0
             stats = {"Punti": 0, "V": 0, "GF": 0, "GS": 0, "DR": 0}
 
-        # Disegniamo la riga delle Info Sportive
-        col_c, col_co = st.columns(2)
-        
-        with col_c:
-            st.markdown(f"""
-            <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 15px; border-radius: 8px; height: 100%;'>
-                <h5 style='color: #1E293B; margin-top: 0;'>🇮🇹 Rendimento Campionato</h5>
-                <div style='font-size: 14px; color: #475569;'>
-                    Posizione: <b style='color: #2563EB; font-size: 18px;'>{posizione_attuale}°</b><br>
-                    Punti: <b>{stats['Punti']}</b>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+        # --- PRE-CALCOLO FORMA RECENTE (WWDLW) ---
+        forma_recente = []
+        if cal_aggiornato:
+            for md in cal_aggiornato:
+                if md and md[0].get("giocata", False):
+                    for m in md:
+                        if m["home"] == sq_sel or m["away"] == sq_sel:
+                            gh, ga = m["gol_home"], m["gol_away"]
+                            if m["home"] == sq_sel:
+                                if gh > ga: forma_recente.append("V")
+                                elif gh == ga: forma_recente.append("N")
+                                else: forma_recente.append("P")
+                            else:
+                                if ga > gh: forma_recente.append("V")
+                                elif ga == gh: forma_recente.append("N")
+                                else: forma_recente.append("P")
+                                
+        ultime_5 = forma_recente[-5:]
+        forma_html = ""
+        for res in ultime_5:
+            if res == "V": color = "#10B981"
+            elif res == "N": color = "#64748B"
+            else: color = "#EF4444"
+            forma_html += f"<span style='display:inline-block; width: 24px; height: 24px; background-color: {color}; color: white; text-align: center; border-radius: 4px; font-size: 13px; font-weight: bold; line-height: 24px; margin-right: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>{res}</span>"
             
-        with col_co:
-            # --- MOTORE DINAMICO FASI COPPE ---
-            def get_stato_ci(sq, c_data):
-                if not c_data or not c_data.get("quarti"): return "Da Iniziare"
-                if c_data.get("finale_salvata"):
-                    if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
-                    if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
-                if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
-                if c_data.get("quarti_salvati"):
-                    in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis", []))
-                    if not in_semi and any(sq in [mq["home"], mq["away"]] for mq in c_data.get("quarti", [])):
-                        return "🔴 Eliminata (Quarti)"
-                if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
-                if c_data.get("semis") and any(sq in [m["home"], m["away"]] for m in c_data["semis"]): return "🟢 In Corsa (Semifinali)"
-                if c_data.get("quarti") and any(sq in [m["home"], m["away"]] for m in c_data["quarti"]): return "🟢 In Corsa (Quarti)"
-                return "Non Qualificata"
-                
-            def get_stato_cl(sq, c_data):
-                if not c_data or not c_data.get("gir_A"): return "Da Iniziare"
-                if c_data.get("finale_salvata"):
-                    if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
-                    if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
-                if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
-                if c_data.get("gironi_salvati"):
-                    in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis_andata", []))
-                    if not in_semi and (sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", [])):
-                        return "🔴 Eliminata (Gironi)"
-                if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
-                if c_data.get("semis_andata") and any(sq in [m["home"], m["away"]] for m in c_data["semis_andata"]): return "🟢 In Corsa (Semifinali)"
-                if sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", []): return "🟢 In Corsa (Gironi)"
-                return "Non Qualificata"
+        if not forma_html:
+            forma_html = "<span style='font-size: 13px; color: #94A3B8; font-style: italic;'>Nessuna gara disputata</span>"
 
-            stato_ci = get_stato_ci(sq_sel, coppe.get("ci", {}))
-            stato_cl = get_stato_cl(sq_sel, coppe.get("cl", {}))
+        # --- PRE-CALCOLO STATO COPPE ---
+        def get_stato_ci(sq, c_data):
+            if not c_data or not c_data.get("quarti"): return "Da Iniziare"
+            if c_data.get("finale_salvata"):
+                if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
+                if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
+            if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
+            if c_data.get("quarti_salvati"):
+                in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis", []))
+                if not in_semi and any(sq in [mq["home"], mq["away"]] for mq in c_data.get("quarti", [])): return "🔴 Eliminata (Quarti)"
+            if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
+            if c_data.get("semis") and any(sq in [m["home"], m["away"]] for m in c_data["semis"]): return "🟢 In Corsa (Semifinali)"
+            if c_data.get("quarti") and any(sq in [m["home"], m["away"]] for m in c_data["quarti"]): return "🟢 In Corsa (Quarti)"
+            return "Non Qualificata"
             
-            st.markdown(f"""
-            <div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 15px; border-radius: 8px; height: 100%;'>
-                <h5 style='color: #1E293B; margin-top: 0;'>🇪🇺 Rendimento Coppe</h5>
-                <div style='font-size: 14px; color: #475569;'>
-                    Coppa Italia: <b>{stato_ci}</b><br>
-                    Champions League: <b>{stato_cl}</b>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+        def get_stato_cl(sq, c_data):
+            if not c_data or not c_data.get("gir_A"): return "Da Iniziare"
+            if c_data.get("finale_salvata"):
+                if c_data["finale"][0].get("vincente") == sq: return "🏆 Vincitrice"
+                if sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🔴 Eliminata (Finale)"
+            if sq in c_data.get("perse_semis", []): return "🔴 Eliminata (Semifinali)"
+            if c_data.get("gironi_salvati"):
+                in_semi = any(sq in [m["home"], m["away"]] for m in c_data.get("semis_andata", []))
+                if not in_semi and (sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", [])): return "🔴 Eliminata (Gironi)"
+            if c_data.get("finale") and sq in [c_data["finale"][0]["home"], c_data["finale"][0]["away"]]: return "🟢 In Corsa (Finale)"
+            if c_data.get("semis_andata") and any(sq in [m["home"], m["away"]] for m in c_data["semis_andata"]): return "🟢 In Corsa (Semifinali)"
+            if sq in c_data.get("gir_A", []) or sq in c_data.get("gir_B", []): return "🟢 In Corsa (Gironi)"
+            return "Non Qualificata"
+
+        stato_ci = get_stato_ci(sq_sel, coppe.get("ci", {}))
+        stato_cl = get_stato_cl(sq_sel, coppe.get("cl", {}))
+
+        # --- NUOVO HEADER PREMIUM SOCIETARIO (TUTTO INCLUSO) ---
+        header_html = f"""<div style='background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 25px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.2); color: white; display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch;'>
             
-        st.write("")
+<!-- Info Società -->
+<div style='flex: 1; min-width: 200px; display: flex; flex-direction: column; justify-content: center;'>
+<div style='font-size: 13px; color: #94A3B8; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;'>Dashboard Presidenziale</div>
+<div style='font-size: 34px; font-weight: 900; margin-top: 5px; margin-bottom: 5px; color: #F8FAFC; line-height: 1.1;'>{sq_sel}</div>
+<div style='font-size: 15px; color: #CBD5E1;'>Presidente: <b style='color: white;'>{sq_dati['allenatore']}</b></div>
+</div>
+
+<!-- Campionato e Forma -->
+<div style='flex: 1; min-width: 240px; background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 18px;'>
+<div style='font-size: 12px; color: #94A3B8; text-transform: uppercase; font-weight: bold; margin-bottom: 12px;'>🇮🇹 Campionato</div>
+<div style='display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px;'>
+<div style='font-size: 32px; font-weight: 900; color: #38BDF8; line-height: 1;'>{posizione_attuale}° <span style='font-size: 16px; font-weight: normal; color: #94A3B8;'>({stats['Punti']} pt)</span></div>
+</div>
+<div style='font-size: 11px; color: #94A3B8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;'>Forma Recente</div>
+<div style='display: flex; gap: 4px;'>{forma_html}</div>
+</div>
+
+<!-- Rendimento Coppe -->
+<div style='flex: 1; min-width: 240px; background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; justify-content: center;'>
+<div style='font-size: 12px; color: #94A3B8; text-transform: uppercase; font-weight: bold; margin-bottom: 15px;'>🇪🇺 Coppe Nazionali ed Europee</div>
+<div style='display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.15); padding-bottom: 10px; margin-bottom: 10px;'>
+<span style='font-size: 14px; color: #CBD5E1;'>Coppa Italia:</span>
+<strong style='color: #F8FAFC; font-size: 14px;'>{stato_ci}</strong>
+</div>
+<div style='display: flex; justify-content: space-between;'>
+<span style='font-size: 14px; color: #CBD5E1;'>Champions League:</span>
+<strong style='color: #F8FAFC; font-size: 14px;'>{stato_cl}</strong>
+</div>
+</div>
+
+</div>"""
+        st.markdown(header_html, unsafe_allow_html=True)
+            
         st.subheader("💼 Contratti Commerciali e Sponsor")
 
-        # --- GESTIONE SPONSOR E TRACKING OBIETTIVI ---
+        # --- CARD OBIETTIVI SPONSOR ANIMATE ---
         if sq_dati["sponsor"].get("nome"):
             st.success(f"🤝 Accordo firmato con il Main Sponsor: **{sq_dati['sponsor']['nome']}**")
-            st.write("📊 **Stato Avanzamento Obiettivi Stagionali:**")
             
             obiettivi = sq_dati['sponsor']['obiettivi']
             pagati = sq_dati['sponsor'].get('obiettivi_pagati', [])
             
-            for livello, (nome_liv, premio) in zip(
+            html_obiettivi = '<div style="display: flex; flex-direction: column; gap: 15px; margin-top: 15px;">'
+            
+            for livello, (nome_liv, premio, color_hex, icona) in zip(
                 ['bronzo', 'argento', 'oro'], 
-                [("Bronzo", "8 M"), ("Argento", "15 M"), ("Oro", "30 M")]
+                [("Obiettivo Bronzo", "8 M", "#CD7F32", "🥉"), ("Obiettivo Argento", "15 M", "#94A3B8", "🥈"), ("Obiettivo Oro", "30 M", "#F59E0B", "🥇")]
             ):
                 ob_text = obiettivi.get(livello, "")
                 if not ob_text: continue
                 
-                if ob_text in pagati:
-                    st.markdown(f"✅ **Obiettivo {nome_liv} ({premio}):** {ob_text} - <b style='color: #10B981;'>COMPLETATO E INCASSATO!</b>", unsafe_allow_html=True)
-                    continue
+                is_pagato = ob_text in pagati
+                progress_perc = 0.0
+                progress_text = ""
+                status_color = "#64748B"
+                bar_color = color_hex
+                
+                if is_pagato:
+                    progress_perc = 100.0
+                    progress_text = "INCASSATO ✓"
+                    status_color = "#10B981"
+                    bar_color = "#10B981"
+                else:
+                    if "vittorie" in ob_text:
+                        target = 8 if "8" in ob_text else (12 if "12" in ob_text else (20 if "20" in ob_text else 1))
+                        current = stats['V']
+                        progress_perc = min(100.0, (current / target) * 100)
+                        progress_text = f"{current} / {target} Vittorie"
+                    elif "gol" in ob_text:
+                        target = 35 if "35" in ob_text else 1
+                        current = stats['GF']
+                        progress_perc = min(100.0, (current / target) * 100)
+                        progress_text = f"{current} / {target} Gol Fatti"
+                    elif "posto" in ob_text or "prime 4" in ob_text or "Vinci il Campionato" in ob_text:
+                        if not cal_aggiornato:
+                            progress_text = "Campionato da iniziare"
+                        else:
+                            is_ok = False
+                            if "8° posto" in ob_text and 0 < posizione_attuale < 8: is_ok = True
+                            elif "prime 4" in ob_text and 0 < posizione_attuale <= 4: is_ok = True
+                            elif "Vinci" in ob_text and posizione_attuale == 1: is_ok = True
+                            
+                            if is_ok:
+                                progress_perc = 100.0
+                                progress_text = "In linea con l'obiettivo"
+                                status_color = "#10B981"
+                            else:
+                                progress_perc = 100.0
+                                progress_text = "Fuori dall'obiettivo"
+                                status_color = "#EF4444"
+                                bar_color = "#EF4444"
+                    elif "Finale" in ob_text or "Coppa" in ob_text:
+                        progress_text = "Si decide nelle fasi finali"
+                        progress_perc = 0.0
 
-                st.markdown(f"**Obiettivo {nome_liv} ({premio}):** {ob_text}")
-                
-                # --- MOTORE DI TRACKING DEGLI OBIETTIVI MIGLIORATO ---
-                if "vittorie" in ob_text:
-                    # Rilevamento manuale esatto per evitare errori con i numeri elenco
-                    if "8" in ob_text: target = 8
-                    elif "12" in ob_text: target = 12
-                    elif "20" in ob_text: target = 20
-                    else: target = 1 
-                    
-                    current = stats['V']
-                    progress = min(1.0, current / target)
-                    st.progress(progress, text=f"Progresso: {current} / {target} vittorie")
-                        
-                elif "gol" in ob_text:
-                    if "35" in ob_text: target = 35
-                    else: target = 1
-                    
-                    current = stats['GF']
-                    progress = min(1.0, current / target)
-                    st.progress(progress, text=f"Progresso: {current} / {target} gol fatti")
-                        
-                elif "posto" in ob_text or "prime 4" in ob_text or "Vinci il Campionato" in ob_text:
-                    if not cal_aggiornato:
-                        st.caption("Campionato non ancora iniziato.")
-                    else:
-                        is_ok = False
-                        if "8° posto" in ob_text and posizione_attuale < 8: is_ok = True
-                        elif "prime 4" in ob_text and posizione_attuale <= 4: is_ok = True
-                        elif "Vinci" in ob_text and posizione_attuale == 1: is_ok = True
-                        
-                        if is_ok: st.markdown("🟢 **Status attuale:** In linea con l'obiettivo.")
-                        else: st.markdown("🔴 **Status attuale:** Al momento fuori dall'obiettivo.")
-                
-                elif "Finale" in ob_text or "Coppa" in ob_text:
-                    st.caption("Le coppe si decidono nelle fasi finali.")
-                    
-                st.write("") # Spaziatore
+                html_obiettivi += f"""<div style="border-left: 6px solid {bar_color}; background-color: #FAFAFA; border-radius: 8px; padding: 18px; border-top: 1px solid #E2E8F0; border-right: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+<span style="font-weight: 900; color: #0F172A; font-size: 15px;">{icona} {nome_liv} <span style="color: #10B981; font-weight: bold;">({premio})</span></span>
+<span style="font-size: 13px; color: {status_color}; font-weight: 900; text-transform: uppercase;">{progress_text}</span>
+</div>
+<div style="font-size: 14px; color: #475569; margin-bottom: 15px;">{ob_text}</div>
+<div style="width: 100%; background-color: #E2E8F0; border-radius: 999px; height: 8px; overflow: hidden;">
+<div style="width: {progress_perc}%; background-color: {bar_color}; height: 8px; border-radius: 999px; transition: width 0.5s ease;"></div>
+</div>
+</div>"""
+
+            html_obiettivi += "</div>"
+            st.markdown(html_obiettivi, unsafe_allow_html=True)
 
         else:
             # --- FORM FIRMA SPONSOR PER I RITARDATARI ---
@@ -1164,7 +1216,18 @@ L'acquisizione a titolo definitivo di <b style='color: #0F172A; font-size: 17px;
                                         val_res_effettivo_s = g_obj_s['valore_residuo'] - (g_obj_s['ammortamento_annuo'] / 2)
                                 else:
                                     val_res_effettivo_s = g_obj_s['valore_residuo']
-                                st.error(f"⚠️ Svincolare azzera il valore residuo generando una minusvalenza di {val_res_effettivo_s:.2f}M.")
+                                # ==========================================
+                                # --- SCONTRINO UFFICIALE (SVINCOLO) ---
+                                # ==========================================
+                                scontrino_svin_html = f"""<div style='background-color: #FEF2F2; border: 1px solid #FECACA; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+<div style='font-size: 12px; color: #991B1B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Rescissione</div>
+La società <b>{sq_svin_name}</b> comunica la risoluzione consensuale del contratto di <b style='color: #7F1D1D; font-size: 17px;'>{g_obj_s['nome']}</b>.<br><br>
+<ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+<li style='margin-bottom: 6px;'><b>Impatto Cassa:</b> Il giocatore lascia il club a parametro zero senza alcuna entrata in cassa.</li>
+<li><b>Impatto a Bilancio:</b> Lo svincolo genera una <b style='color: #EF4444; font-size: 16px;'>Minusvalenza secca di {val_res_effettivo_s:.2f} M</b> nell'esercizio in corso.</li>
+</ul>
+</div>"""
+                                st.markdown(scontrino_svin_html, unsafe_allow_html=True)
                                 
                                 if st.button("Conferma Svincolo", type="primary", key="btn_conferma_svincolo"):
                                     if "Invernale" in sessione_svin:
@@ -1232,8 +1295,6 @@ L'acquisizione a titolo definitivo di <b style='color: #0F172A; font-size: 17px;
                                 if blocco_rinnovo:
                                     st.warning(f"✋ **Operazione Bloccata.** {msg_blocco}")
                                 else:
-                                    st.write(f"📊 **Stipendio Attuale:** {g_obj_r['stipendio']:.3f} M | **Valore Residuo Attuale:** {g_obj_r['valore_residuo']:.2f} M")
-                                    
                                     nuovi_anni = st.slider("Nuovi Anni di Contratto (Max 5)", 1, 5, 1, key="anni_rinnovo")
                                     
                                     anni_effettivi = nuovi_anni - 0.5 if is_gen_rin else nuovi_anni
@@ -1241,14 +1302,25 @@ L'acquisizione a titolo definitivo di <b style='color: #0F172A; font-size: 17px;
                                     nuovo_stipendio = g_obj_r['stipendio'] * 1.30 
                                     
                                     if is_gen_rin:
-                                        st.info(f"❄️ **Rinnovo Invernale:** Impatto pro-quota. Durata effettiva {anni_effettivi} anni.")
                                         vr_a_gennaio = g_obj_r['valore_residuo'] - (g_obj_r['ammortamento_annuo'] / 2)
                                         nuovo_amm = vr_a_gennaio / anni_effettivi if anni_effettivi > 0 else 0
+                                        nota_gen_rin = " (impatto pro-quota dal 1° Gennaio)"
                                     else:
-                                        st.info("☀️ **Rinnovo Estivo:** Nuovo contratto applicato all'intera stagione.")
                                         nuovo_amm = g_obj_r['valore_residuo'] / anni_effettivi if anni_effettivi > 0 else 0
+                                        nota_gen_rin = ""
                                         
-                                    st.write(f"🔄 **Nuova Proiezione:** Stipendio **{nuovo_stipendio:.3f} M** | Ammortamento Annuo **{nuovo_amm:.2f} M**")
+                                    # ==========================================
+                                    # --- SCONTRINO UFFICIALE (RINNOVO) ---
+                                    # ==========================================
+                                    scontrino_rin_html = f"""<div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #8B5CF6; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+<div style='font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Rinnovo</div>
+Il <b>{sq_rin_name}</b> annuncia il prolungamento contrattuale di <b style='color: #4C1D95; font-size: 17px;'>{g_obj_r['nome']}</b> per ulteriori <b>{anni_effettivi} anni</b>{nota_gen_rin}.<br><br>
+<ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+<li style='margin-bottom: 6px;'><b>Adeguamento Salariale (+30%):</b> Lo stipendio base passa da {g_obj_r['stipendio']:.3f} M a <b style='color: #8B5CF6; font-size: 16px;'>{nuovo_stipendio:.3f} M</b> annui.</li>
+<li><b>Rimodulazione Ammortamento:</b> Il valore residuo di {g_obj_r['valore_residuo']:.2f} M viene spalmato sulla nuova durata contrattuale, portando l'ammortamento a <b style='color: #8B5CF6; font-size: 16px;'>{nuovo_amm:.2f} M</b> annui.</li>
+</ul>
+</div>"""
+                                    st.markdown(scontrino_rin_html, unsafe_allow_html=True)
                                     
                                     if st.button("Conferma Rinnovo", type="primary", key="btn_conferma_rinnovo"):
                                         if is_gen_rin:
@@ -1327,11 +1399,6 @@ elif menu == "4. Mercato (Prestiti)":
                 # Calcolo durata effettiva (-0.5 a gennaio)
                 anni_effettivi_prestito = durata_prestito - 0.5 if is_gen_prestito else durata_prestito
                 
-                if is_gen_prestito:
-                    st.info(f"❄️ **Prestito Invernale:** Durata effettiva {anni_effettivi_prestito} anni. Il {perc_stipendio}% di stipendio a carico dell'acquirente verrà calcolato **solo sui 6 mesi correnti**, mentre i primi 6 mesi restano interamente a carico della società cedente")
-                else:
-                    st.info(f"☀️ **Prestito Estivo:** Durata {anni_effettivi_prestito} anni. La percentuale si applica all'intera stagione.")
-                
                 stip_totale = g_obj['stipendio']
                 amm_totale = g_obj['ammortamento_annuo']
                 
@@ -1396,6 +1463,30 @@ elif menu == "4. Mercato (Prestiti)":
                 if anni_rimanenti < (durata_prestito + 1):
                     st.error(f"⚠️ **Operazione Bloccata.** Il giocatore ha solo {anni_rimanenti} anno/i di contratto residuo. Per un prestito di {durata_prestito} anno/i, servono almeno {durata_prestito + 1} anni di contratto. **Rinnovalo prima di cederlo!**")
                 else:
+                    # ==========================================
+                    # --- SCONTRINO UFFICIALE (PRESTITO) ---
+                    # ==========================================
+                    dettagli_riscatto = ""
+                    if tipo_accordo != "Prestito Secco":
+                        dettagli_riscatto = f"<li style='margin-bottom: 6px;'><b>Condizioni Riscatto:</b> {tipo_accordo} fissato a <b>{cifra_riscatto:.2f} M</b>.</li>"
+                        
+                    costo_oneroso_text = ""
+                    if costo_prestito > 0:
+                        costo_oneroso_text = f"<li style='margin-bottom: 6px;'><b>Prestito Oneroso:</b> Versamento immediato di <b>{costo_prestito:.2f} M</b> a favore del {sq_cedente}.</li>"
+                    else:
+                        costo_oneroso_text = "<li style='margin-bottom: 6px;'><b>Prestito Gratuito:</b> Nessun esborso immediato per il trasferimento temporaneo.</li>"
+
+                    scontrino_prestito_html = f"""<div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; border-left: 6px solid #0D9488; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+<div style='font-size: 12px; color: #115E59; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Cessione Temporanea</div>
+Le società confermano l'accordo per il trasferimento in prestito di <b style='color: #0F172A; font-size: 17px;'>{g_obj['nome']}</b> dal <b>{sq_cedente}</b> al <b>{sq_acquirente}</b>.<br><br>
+<ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+<li style='margin-bottom: 6px;'><b>Formula:</b> {tipo_accordo} della durata di <b>{anni_effettivi_prestito} anni</b>.</li>
+{costo_oneroso_text}
+{dettagli_riscatto}
+</ul>
+</div>"""
+                    st.markdown(scontrino_prestito_html, unsafe_allow_html=True)
+                    
                     # Mostra il bottone SOLO se la regola è rispettata
                     if st.button("Ufficializza Prestito", type="primary"):
                         if costo_prestito > db[sq_acquirente]['cassa']:
@@ -1449,6 +1540,16 @@ elif menu == "4. Mercato (Prestiti)":
                         prezzo_r = st.number_input("Costo del Riscatto (MLN)", min_value=1.0)
                         
                     anni_nuovi = st.slider("Nuovi anni di contratto", 1, 5, 3)
+
+                    scontrino_riscatto_html = f"""<div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #2563EB; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+<div style='font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Esercizio Riscatto</div>
+Il <b>{sq_acquirente}</b> comunica l'intenzione di esercitare l'opzione di acquisto a titolo definitivo per <b style='color: #0F172A; font-size: 17px;'>{g_riscatto}</b>, attualmente di proprietà del <b>{sq_cedente}</b>.<br><br>
+<ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
+<li style='margin-bottom: 6px;'><b>Cifra di Riscatto:</b> Verranno versati <b>{prezzo_r:.2f} M</b> al momento della chiusura del bilancio societario (1° Luglio).</li>
+<li><b>Nuovo Contratto:</b> Il giocatore siglerà un accordo di <b>{anni_nuovi} anni</b> effettivi a partire dalla prossima stagione sportiva.</li>
+</ul>
+</div>"""
+                    st.markdown(scontrino_riscatto_html, unsafe_allow_html=True)
                     
                     if st.button("Prenota Riscatto (Effettivo al 1° Luglio)", type="primary"):
                         g_r_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
@@ -2672,3 +2773,89 @@ elif menu == "9. Cronologia Ufficialità":
             
             html_feed += "</div>"
             st.markdown(html_feed, unsafe_allow_html=True)
+
+# ==========================================
+# 10. CRUSCOTTO ASTA LIVE (SCHERMO INTERO)
+# ==========================================
+# elif menu == "10. Cruscotto Asta Live":
+#     st.markdown("<h1 style='text-align: center; color: #0F172A; margin-bottom: 30px; text-transform: uppercase; font-weight: 900;'>🔨 Tabellone Asta Live</h1>", unsafe_allow_html=True)
+    
+#     # Pulsante per aggiornare il tabellone se un admin fa un acquisto da un altro PC
+#     col_btn, _ = st.columns([1, 5])
+#     if col_btn.button("🔄 Aggiorna Tabellone", use_container_width=True, type="secondary"):
+#         try: force_sync()
+#         except: pass
+#         st.rerun()
+        
+#     if not db:
+#         st.warning("Nessuna squadra iscritta.")
+#     else:
+#         # CSS Esclusivo per il Tabellone Gigante
+#         st.markdown("""
+#         <style>
+#         .asta-table { width: 100%; border-collapse: collapse; background-color: white; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.1); font-family: sans-serif; text-align: center; }
+#         .asta-table th { background-color: #0F172A; color: white; padding: 18px; font-size: 16px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-right: 1px solid #334155; }
+#         .asta-table th:last-child { border-right: none; }
+#         .asta-table td { padding: 18px 10px; font-size: 20px; color: #1E293B; border-bottom: 1px solid #E2E8F0; border-right: 1px solid #F1F5F9; font-weight: 500; vertical-align: middle; }
+#         .asta-table tr:last-child td { border-bottom: none; }
+#         .asta-table tr:hover { background-color: #F8FAFC; }
+#         .nome-sq { text-align: left !important; font-weight: 900 !important; font-size: 22px !important; color: #0F172A; padding-left: 20px !important; }
+#         .cassa-val { color: #10B981; font-weight: 900; font-size: 24px; }
+#         .max-bid { color: #EF4444; font-weight: 900; font-size: 24px; background-color: #FEF2F2; border-radius: 8px; padding: 6px 12px; border: 1px solid #FECACA; }
+#         .slot-ok { color: #10B981; font-weight: 900; }
+#         .slot-mis { color: #F59E0B; font-weight: 900; }
+#         .slot-bad { color: #EF4444; font-weight: 900; }
+#         </style>
+#         """, unsafe_allow_html=True)
+        
+#         # Header della Tabella (Tutto formattato senza spazi a inizio riga per il Markdown)
+#         html_asta = """<table class='asta-table'>
+# <tr><th style='text-align: left; padding-left: 20px;'>Società</th><th>Cassa (M)</th><th>Rilancio Max</th><th>POR (3)</th><th>DIF (8)</th><th>CEN (8)</th><th>ATT (6)</th><th>Slot Liberi</th></tr>"""
+
+#         for sq_name, dati in db.items():
+#             cassa = dati['cassa']
+            
+#             # Conteggio effettivo dei ruoli
+#             conteggio = {"Portiere": 0, "Difensore": 0, "Centrocampista": 0, "Attaccante": 0}
+#             for g in dati['rosa']:
+#                 if not g.get("prestato_a"):
+#                     conteggio[g['ruolo']] += 1
+                    
+#             tot_giocatori = sum(conteggio.values())
+#             mancanti = max(0, 25 - tot_giocatori)
+            
+#             # La vera magia per l'asta: Calcolo Rilancio Massimo (tenendo 1M minimo per ogni slot vuoto)
+#             # Se ti mancano 3 giocatori, devi tenere almeno 2M per gli altri due, quindi max_bid = cassa - 2
+#             rilancio_max = max(0.0, cassa - max(0, mancanti - 1))
+#             if mancanti == 0: rilancio_max = cassa # Se rosa piena, puoi spendere tutto per sostituire
+            
+#             # Funzione per colorare i ruoli
+#             def format_slot(attuale, target):
+#                 if attuale == target: return f"<span class='slot-ok'>{attuale}</span>"
+#                 elif attuale == 0: return f"<span class='slot-bad'>{attuale}</span>"
+#                 return f"<span class='slot-mis'>{attuale}</span>"
+                
+#             por_f = format_slot(conteggio['Portiere'], 3)
+#             dif_f = format_slot(conteggio['Difensore'], 8)
+#             cen_f = format_slot(conteggio['Centrocampista'], 8)
+#             att_f = format_slot(conteggio['Attaccante'], 6)
+            
+#             # Badge stilizzato per i posti liberi
+#             if mancanti == 0:
+#                 badge_m = "<span style='background-color: #10B981; color: white; padding: 6px 12px; border-radius: 20px; font-size: 14px; font-weight: bold;'>COMPLETA</span>"
+#             else:
+#                 badge_m = f"<span style='background-color: #3B82F6; color: white; padding: 6px 16px; border-radius: 20px; font-size: 18px; font-weight: 900;'>{mancanti}</span>"
+            
+#             # Creazione dinamica della riga
+#             html_asta += f"""<tr>
+# <td class='nome-sq'>{sq_name}</td>
+# <td><span class='cassa-val'>{cassa:.2f}</span></td>
+# <td><span class='max-bid'>{rilancio_max:.2f}</span></td>
+# <td>{por_f}</td><td>{dif_f}</td><td>{cen_f}</td><td>{att_f}</td>
+# <td>{badge_m}</td>
+# </tr>"""
+
+#         html_asta += "</table>"
+        
+#         # Stampa a schermo intero
+#         st.markdown(html_asta, unsafe_allow_html=True)
