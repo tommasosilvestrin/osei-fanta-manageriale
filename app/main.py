@@ -314,14 +314,11 @@ st.sidebar.title("⚽ OFL Manager")
 menu = st.sidebar.radio("Navigazione", [
     "1. Home Società", 
     "2. Dashboard & Rosa", 
-    "3. Mercato (Definitivi)", 
-    "4. Mercato (Prestiti)",
-    "5. Calendario & Partite",
-    "6. Classifica Campionato",
-    "7. Coppe (Italia & CL)",
-    "8. Chiusura Fiscale Bilancio",
-    "9. Cronologia Ufficialità"
-    # "10. Cruscotto Asta Live"
+    "3. Mercati", 
+    "4. Competizioni",
+    "5. Chiusura Fiscale Bilancio",
+    "6. Cronologia Ufficialità"
+    # "7. Cruscotto Asta Live"
 ])
 
 st.sidebar.divider()
@@ -334,25 +331,21 @@ if st.sidebar.button("🔄 Sincronizza Dati", use_container_width=True):
 # ==========================================
 # Ora usiamo get_data() che pesca dalla RAM a latenza zero!
 
-db, calendario, coppe = {}, [], {}
+db = get_data(DB_PATH)
+calendario = get_data(CAL_PATH)
+coppe = get_data(COPPE_PATH)
 
-if menu != "9. Regolamento Ufficiale":
-    db = get_data(DB_PATH)
-    # Controllo chiavi mancanti (eseguito in locale)
+# Controllo chiavi mancanti (eseguito in locale)
+if db:
     for sq in db.values():
         if "costi_giocatori_ceduti" not in sq["bilancio"]["costi"]:
             sq["bilancio"]["costi"]["costi_giocatori_ceduti"] = 0.0
         if "incassi_stadio" not in sq["bilancio"]["ricavi"]:
             sq["bilancio"]["ricavi"]["incassi_stadio"] = 0.0
 
-if menu in ["5. Calendario & Partite", "6. Classifica Campionato", "8. Chiusura Fiscale Bilancio"]:
-    calendario = get_data(CAL_PATH)
-
-if menu in ["5. Calendario & Partite", "7. Coppe (Italia & CL)", "8. Chiusura Fiscale Bilancio"]:
-    coppe = get_data(COPPE_PATH)
-    if not coppe: 
-        coppe = init_coppe()
-        save_data(coppe, COPPE_PATH)
+if not coppe: 
+    coppe = init_coppe()
+    save_data(coppe, COPPE_PATH)
 
 # Mettilo nella pagina principale, visibile sempre (o magari solo nel Menu 2 se preferisci)
 ultimi_movimenti = []
@@ -633,7 +626,7 @@ if menu == "1. Home Società":
             st.markdown(html_obiettivi, unsafe_allow_html=True)
 
         else:
-            # --- FORM FIRMA SPONSOR PER I RITARDATARI ---
+            # --- FORM FIRMA SPONSOR ---
             if not st.session_state.is_admin:
                 st.warning("Lo sponsor non è ancora stato firmato. Contatta l'Amministratore.")
             else:
@@ -976,7 +969,7 @@ elif menu == "2. Dashboard & Rosa":
 # ==========================================
 # 3. MERCATO (DEFINITIVI E RINNOVI)
 # ==========================================
-elif menu == "3. Mercato (Definitivi)":
+elif menu == "3. Mercati":
     st.header("🛒 Acquisti, Cessioni, Svincoli e Rinnovi")
 
     if not st.session_state.is_admin:
@@ -988,7 +981,7 @@ elif menu == "3. Mercato (Definitivi)":
             # Ordine ruoli fisso per tutti
             ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
 
-            t_acq, t_trasf, t_svin, t_rin = st.tabs(["Asta", "Trasferimento", "Svincolo", "Rinnovo"])
+            t_acq, t_trasf, t_svin, t_rin, t_pre = st.tabs(["Asta", "Trasferimento", "Svincolo", "Rinnovo", "Prestiti e Riscatti"])
             
             # --- TAB 1: ACQUISTA (Dall'asta o svincolati) ---
             with t_acq:
@@ -1346,80 +1339,70 @@ Il <b>{sq_rin_name}</b> annuncia il prolungamento contrattuale di <b style='colo
                 else:
                     st.info("Nessun giocatore in rosa da rinnovare.")
 
-# ==========================================
-# 4. MERCATO (PRESTITI)
-# ==========================================
-elif menu == "4. Mercato (Prestiti)":
-    st.header("🤝 Gestione Prestiti e Riscatti")
+            # --- TAB 5: PRESTITI ---
+            with t_pre:
+                c1, c2 = st.columns(2)
+                sq_cedente = c1.selectbox("Società Cedente", list(db.keys()))
+                sq_acquirente = c2.selectbox("Società Acquirente", [s for s in db.keys() if s != sq_cedente])
+                
+                rosa_cedente = [g for g in db[sq_cedente]['rosa'] if not g.get("prestato_a")]
 
-    if not st.session_state.is_admin:
-        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può effettuare operazioni di mercato.")
-    else:
-        if len(db) < 2:
-            st.warning("Servono almeno 2 squadre per i prestiti.")
-        else:
-            c1, c2 = st.columns(2)
-            sq_cedente = c1.selectbox("Società Cedente", list(db.keys()))
-            sq_acquirente = c2.selectbox("Società Acquirente", [s for s in db.keys() if s != sq_cedente])
-            
-            rosa_cedente = [g for g in db[sq_cedente]['rosa'] if not g.get("prestato_a")]
-
-            # --- ORDINAMENTO ROSA PER RUOLO ---
-            ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
-            rosa_ordinata = sorted(rosa_cedente, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
-            
-            if not rosa_ordinata: st.info("Nessun giocatore disponibile.")
-            else:
-                # MODIFICA 1: Usiamo i numeri interi come opzioni per non perdere la memoria al click!
-                indice_p = st.selectbox(
-                    "Seleziona Giocatore", 
-                    options=range(len(rosa_ordinata)), 
-                    format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
-                    key="prestito_out_idx"
-                )
+                # --- ORDINAMENTO ROSA PER RUOLO ---
+                ordine_ruoli = {"Portiere": 1, "Difensore": 2, "Centrocampista": 3, "Attaccante": 4}
+                rosa_ordinata = sorted(rosa_cedente, key=lambda x: ordine_ruoli.get(x['ruolo'], 5))
                 
-                # Recuperiamo il giocatore dalla lista temporanea ordinata
-                g_selezionato = rosa_ordinata[indice_p]
-                
-                # MODIFICA 2: Troviamo il giocatore REALE dentro il database per modificarlo direttamente alla fonte
-                g_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_selezionato['nome'])
-                
-                st.divider()
-                st.markdown("### 📝 Dettagli Contratto di Prestito")
-                
-                # ---> AGGIUNTA SESSIONE
-                sessione_prestito = st.radio("Sessione di Mercato (Prestito)", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_prestito")
-                is_gen_prestito = "Invernale" in sessione_prestito
-                st.divider()
-                
-                col_dur, col_stip = st.columns(2)
-                durata_prestito = col_dur.slider("Durata Prestito (Anni)", 1, 2, 1)
-                perc_stipendio = col_stip.slider("% Stipendio a carico dell'Acquirente", 0, 100, 50, step=10)
-                
-                # Calcolo durata effettiva (-0.5 a gennaio)
-                anni_effettivi_prestito = durata_prestito - 0.5 if is_gen_prestito else durata_prestito
-                
-                stip_totale = g_obj['stipendio']
-                amm_totale = g_obj['ammortamento_annuo']
-                
-                if is_gen_prestito:
-                    # A gennaio, metà stipendio è già in pancia al cedente. L'altra metà si divide in base allo slider.
-                    stip_acq = (stip_totale / 2) * (perc_stipendio / 100)
-                    stip_ced = (stip_totale / 2) + ((stip_totale / 2) * ((100 - perc_stipendio) / 100))
+                if not rosa_ordinata: st.info("Nessun giocatore disponibile.")
                 else:
-                    stip_acq = stip_totale * (perc_stipendio / 100)
-                    stip_ced = stip_totale * ((100 - perc_stipendio) / 100)
+                    # MODIFICA 1: Usiamo i numeri interi come opzioni per non perdere la memoria al click!
+                    indice_p = st.selectbox(
+                        "Seleziona Giocatore", 
+                        options=range(len(rosa_ordinata)), 
+                        format_func=lambda i: f"{rosa_ordinata[i]['nome']} ({rosa_ordinata[i]['ruolo'][:3].upper()})", 
+                        key="prestito_out_idx"
+                    )
                     
-                # ==========================================
-                # --- SPLIT-BAR DINAMICA STIPENDIO ---
-                # ==========================================
-                # Colori: Blu per chi cede, Arancione per chi compra
-                color_ced = "#3B82F6"
-                color_acq = "#F59E0B"
+                    # Recuperiamo il giocatore dalla lista temporanea ordinata
+                    g_selezionato = rosa_ordinata[indice_p]
+                    
+                    # MODIFICA 2: Troviamo il giocatore REALE dentro il database per modificarlo direttamente alla fonte
+                    g_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_selezionato['nome'])
+                    
+                    st.divider()
+                    st.markdown("### 📝 Dettagli Contratto di Prestito")
+                    
+                    # ---> AGGIUNTA SESSIONE
+                    sessione_prestito = st.radio("Sessione di Mercato (Prestito)", ["☀️ Estiva", "❄️ Invernale"], horizontal=True, key="sess_prestito")
+                    is_gen_prestito = "Invernale" in sessione_prestito
+                    st.divider()
+                    
+                    col_dur, col_stip = st.columns(2)
+                    durata_prestito = col_dur.slider("Durata Prestito (Anni)", 1, 2, 1)
+                    perc_stipendio = col_stip.slider("% Stipendio a carico dell'Acquirente", 0, 100, 50, step=10)
+                    
+                    # Calcolo durata effettiva (-0.5 a gennaio)
+                    anni_effettivi_prestito = durata_prestito - 0.5 if is_gen_prestito else durata_prestito
+                    
+                    stip_totale = g_obj['stipendio']
+                    amm_totale = g_obj['ammortamento_annuo']
+                    
+                    if is_gen_prestito:
+                        # A gennaio, metà stipendio è già in pancia al cedente. L'altra metà si divide in base allo slider.
+                        stip_acq = (stip_totale / 2) * (perc_stipendio / 100)
+                        stip_ced = (stip_totale / 2) + ((stip_totale / 2) * ((100 - perc_stipendio) / 100))
+                    else:
+                        stip_acq = stip_totale * (perc_stipendio / 100)
+                        stip_ced = stip_totale * ((100 - perc_stipendio) / 100)
+                        
+                    # ==========================================
+                    # --- SPLIT-BAR DINAMICA STIPENDIO ---
+                    # ==========================================
+                    # Colori: Blu per chi cede, Arancione per chi compra
+                    color_ced = "#3B82F6"
+                    color_acq = "#F59E0B"
+                    
+                    perc_cedente = 100 - perc_stipendio
                 
-                perc_cedente = 100 - perc_stipendio
-                
-                html_prospetto = f"""<div style='margin-top: 15px; margin-bottom: 25px; padding: 20px; background-color: white; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.03);'>
+                    html_prospetto = f"""<div style='margin-top: 15px; margin-bottom: 25px; padding: 20px; background-color: white; border: 1px solid #E2E8F0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.03);'>
 <div style='text-align: center; font-size: 18px; font-weight: bold; color: #475569; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.5px;'>
 📊 Suddivisione Ingaggio Stagione Corrente
 </div>
@@ -1447,36 +1430,36 @@ elif menu == "4. Mercato (Prestiti)":
 ⚠️ <b>L'Ammortamento di {amm_totale:.2f} M</b> resta interamente a carico di <b>{sq_cedente}</b>.
 </div>
 </div>"""
-                st.markdown(html_prospetto, unsafe_allow_html=True)
+                    st.markdown(html_prospetto, unsafe_allow_html=True)
 
-                col_on, col_tipo, col_cifra = st.columns(3)
-                costo_prestito = col_on.number_input("Costo Prestito (Oneroso in MLN)", min_value=0.0, step=0.5, value=0.0)
-                tipo_accordo = col_tipo.selectbox("Tipo di Accordo", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
-                
-                cifra_riscatto = 0.0
-                if tipo_accordo != "Prestito Secco":
-                    cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                anni_rimanenti = g_obj['anni_contratto'] - g_obj.get('anni_trascorsi', 0)
-
-                if anni_rimanenti < (durata_prestito + 1):
-                    st.error(f"⚠️ **Operazione Bloccata.** Il giocatore ha solo {anni_rimanenti} anno/i di contratto residuo. Per un prestito di {durata_prestito} anno/i, servono almeno {durata_prestito + 1} anni di contratto. **Rinnovalo prima di cederlo!**")
-                else:
-                    # ==========================================
-                    # --- SCONTRINO UFFICIALE (PRESTITO) ---
-                    # ==========================================
-                    dettagli_riscatto = ""
+                    col_on, col_tipo, col_cifra = st.columns(3)
+                    costo_prestito = col_on.number_input("Costo Prestito (Oneroso in MLN)", min_value=0.0, step=0.5, value=0.0)
+                    tipo_accordo = col_tipo.selectbox("Tipo di Accordo", ["Prestito Secco", "Diritto di Riscatto", "Obbligo di Riscatto"])
+                    
+                    cifra_riscatto = 0.0
                     if tipo_accordo != "Prestito Secco":
-                        dettagli_riscatto = f"<li style='margin-bottom: 6px;'><b>Condizioni Riscatto:</b> {tipo_accordo} fissato a <b>{cifra_riscatto:.2f} M</b>.</li>"
-                        
-                    costo_oneroso_text = ""
-                    if costo_prestito > 0:
-                        costo_oneroso_text = f"<li style='margin-bottom: 6px;'><b>Prestito Oneroso:</b> Versamento immediato di <b>{costo_prestito:.2f} M</b> a favore del {sq_cedente}.</li>"
-                    else:
-                        costo_oneroso_text = "<li style='margin-bottom: 6px;'><b>Prestito Gratuito:</b> Nessun esborso immediato per il trasferimento temporaneo.</li>"
+                        cifra_riscatto = col_cifra.number_input("Cifra Riscatto Pattuita (MLN)", min_value=1.0, step=1.0, value=10.0)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    anni_rimanenti = g_obj['anni_contratto'] - g_obj.get('anni_trascorsi', 0)
 
-                    scontrino_prestito_html = f"""<div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; border-left: 6px solid #0D9488; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+                    if anni_rimanenti < (durata_prestito + 1):
+                        st.error(f"⚠️ **Operazione Bloccata.** Il giocatore ha solo {anni_rimanenti} anno/i di contratto residuo. Per un prestito di {durata_prestito} anno/i, servono almeno {durata_prestito + 1} anni di contratto. **Rinnovalo prima di cederlo!**")
+                    else:
+                        # ==========================================
+                        # --- SCONTRINO UFFICIALE (PRESTITO) ---
+                        # ==========================================
+                        dettagli_riscatto = ""
+                        if tipo_accordo != "Prestito Secco":
+                            dettagli_riscatto = f"<li style='margin-bottom: 6px;'><b>Condizioni Riscatto:</b> {tipo_accordo} fissato a <b>{cifra_riscatto:.2f} M</b>.</li>"
+                            
+                        costo_oneroso_text = ""
+                        if costo_prestito > 0:
+                            costo_oneroso_text = f"<li style='margin-bottom: 6px;'><b>Prestito Oneroso:</b> Versamento immediato di <b>{costo_prestito:.2f} M</b> a favore del {sq_cedente}.</li>"
+                        else:
+                            costo_oneroso_text = "<li style='margin-bottom: 6px;'><b>Prestito Gratuito:</b> Nessun esborso immediato per il trasferimento temporaneo.</li>"
+
+                        scontrino_prestito_html = f"""<div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; border-left: 6px solid #0D9488; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
 <div style='font-size: 12px; color: #115E59; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Cessione Temporanea</div>
 Le società confermano l'accordo per il trasferimento in prestito di <b style='color: #0F172A; font-size: 17px;'>{g_obj['nome']}</b> dal <b>{sq_cedente}</b> al <b>{sq_acquirente}</b>.<br><br>
 <ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
@@ -1485,63 +1468,63 @@ Le società confermano l'accordo per il trasferimento in prestito di <b style='c
 {dettagli_riscatto}
 </ul>
 </div>"""
-                    st.markdown(scontrino_prestito_html, unsafe_allow_html=True)
+                        st.markdown(scontrino_prestito_html, unsafe_allow_html=True)
                     
-                    # Mostra il bottone SOLO se la regola è rispettata
-                    if st.button("Ufficializza Prestito", type="primary"):
-                        if costo_prestito > db[sq_acquirente]['cassa']:
-                            st.error("Cassa acquirente insufficiente per il prestito oneroso!")
-                        else:
-                            g_acq = g_obj.copy()
-                            g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
-                            g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                            g_acq['anni_prestito_rimanenti'] = anni_effettivi_prestito
-                            g_acq['prestato_a_gennaio'] = is_gen_prestito
-                            db[sq_acquirente]['rosa'].append(g_acq)
-                            
-                            g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
-                            g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
-                            g_obj['anni_prestito_rimanenti'] = anni_effettivi_prestito
-                            g_obj['prestato_a_gennaio'] = is_gen_prestito
-                            
-                            if costo_prestito > 0:
-                                db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
-                                db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
-                                db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
-                                db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                        # Mostra il bottone SOLO se la regola è rispettata
+                        if st.button("Ufficializza Prestito", type="primary"):
+                            if costo_prestito > db[sq_acquirente]['cassa']:
+                                st.error("Cassa acquirente insufficiente per il prestito oneroso!")
+                            else:
+                                g_acq = g_obj.copy()
+                                g_acq['in_prestito_da'], g_acq['perc_stipendio_pagato'] = sq_cedente, perc_stipendio
+                                g_acq['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                                g_acq['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                                g_acq['prestato_a_gennaio'] = is_gen_prestito
+                                db[sq_acquirente]['rosa'].append(g_acq)
                                 
-                            save_data(db, DB_PATH)
-                            log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
-                            st.session_state.msg_prestito = f"🤝 Prestito di {g_obj['nome']} registrato con successo!"
-                            st.rerun()
+                                g_obj['prestato_a'], g_obj['perc_stipendio_pagato'] = sq_acquirente, perc_stipendio
+                                g_obj['accordo_riscatto'] = {"tipo": tipo_accordo, "cifra": cifra_riscatto}
+                                g_obj['anni_prestito_rimanenti'] = anni_effettivi_prestito
+                                g_obj['prestato_a_gennaio'] = is_gen_prestito
+                                
+                                if costo_prestito > 0:
+                                    db[sq_acquirente]['cassa'] = round(db[sq_acquirente]['cassa'] - costo_prestito, 2)
+                                    db[sq_cedente]['cassa'] = round(db[sq_cedente]['cassa'] + costo_prestito, 2)
+                                    db[sq_cedente]['bilancio']['ricavi']['plusvalenze'] += costo_prestito
+                                    db[sq_acquirente]['bilancio']['costi']['minusvalenze'] += costo_prestito
+                                    
+                                save_data(db, DB_PATH)
+                                log_evento(sq_cedente, "🧳", f"ha ceduto in prestito **{g_obj['nome']}** alla società **{sq_acquirente}**.")
+                                st.session_state.msg_prestito = f"🤝 Prestito di {g_obj['nome']} registrato con successo!"
+                                st.rerun()
                     
-                    if "msg_prestito" in st.session_state:
-                        st.success(st.session_state.msg_prestito)
-                        del st.session_state.msg_prestito
+                        if "msg_prestito" in st.session_state:
+                            st.success(st.session_state.msg_prestito)
+                            del st.session_state.msg_prestito
                         
-            st.divider()
-            st.subheader("🛒 Esercita Riscatto")
-            in_prestito = [g for g in db[sq_acquirente]['rosa'] if g.get("in_prestito_da") == sq_cedente]
-            if in_prestito:
-                g_riscatto = st.selectbox("Calciatore da riscattare", [g['nome'] for g in in_prestito])
-                g_r_obj = next(g for g in in_prestito if g['nome'] == g_riscatto)
-                
-                if "riscatto_prenotato" in g_r_obj:
-                    st.warning(f"⏳ Riscatto già prenotato a {g_r_obj['riscatto_prenotato']['cifra']} M. Diventerà effettivo il 1° Luglio con la chiusura del bilancio.")
-                else:
-                    accordo = g_r_obj.get("accordo_riscatto", {"tipo": "Prestito Secco", "cifra": 0.0})
-                    if accordo["tipo"] == "Obbligo di Riscatto":
-                        st.error(f"⚠️ Questo giocatore ha un OBBLIGO di riscatto fissato a {accordo['cifra']} M.")
-                        prezzo_r = st.number_input("Conferma Costo Riscatto (MLN)", min_value=0.0, value=float(accordo['cifra']))
-                    elif accordo["tipo"] == "Diritto di Riscatto":
-                        st.info(f"💡 Diritto di riscatto pattuito a {accordo['cifra']} M.")
-                        prezzo_r = st.number_input("Costo del Riscatto (MLN)", min_value=0.0, value=float(accordo['cifra']))
+                st.divider()
+                st.subheader("🛒 Esercita Riscatto")
+                in_prestito = [g for g in db[sq_acquirente]['rosa'] if g.get("in_prestito_da") == sq_cedente]
+                if in_prestito:
+                    g_riscatto = st.selectbox("Calciatore da riscattare", [g['nome'] for g in in_prestito])
+                    g_r_obj = next(g for g in in_prestito if g['nome'] == g_riscatto)
+                    
+                    if "riscatto_prenotato" in g_r_obj:
+                        st.warning(f"⏳ Riscatto già prenotato a {g_r_obj['riscatto_prenotato']['cifra']} M. Diventerà effettivo il 1° Luglio con la chiusura del bilancio.")
                     else:
-                        prezzo_r = st.number_input("Costo del Riscatto (MLN)", min_value=1.0)
+                        accordo = g_r_obj.get("accordo_riscatto", {"tipo": "Prestito Secco", "cifra": 0.0})
+                        if accordo["tipo"] == "Obbligo di Riscatto":
+                            st.error(f"⚠️ Questo giocatore ha un OBBLIGO di riscatto fissato a {accordo['cifra']} M.")
+                            prezzo_r = st.number_input("Conferma Costo Riscatto (MLN)", min_value=0.0, value=float(accordo['cifra']))
+                        elif accordo["tipo"] == "Diritto di Riscatto":
+                            st.info(f"💡 Diritto di riscatto pattuito a {accordo['cifra']} M.")
+                            prezzo_r = st.number_input("Costo del Riscatto (MLN)", min_value=0.0, value=float(accordo['cifra']))
+                        else:
+                            prezzo_r = st.number_input("Costo del Riscatto (MLN)", min_value=1.0)
                         
-                    anni_nuovi = st.slider("Nuovi anni di contratto", 1, 5, 3)
+                        anni_nuovi = st.slider("Nuovi anni di contratto", 1, 5, 3)
 
-                    scontrino_riscatto_html = f"""<div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #2563EB; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
+                        scontrino_riscatto_html = f"""<div style='background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid #2563EB; padding: 20px; border-radius: 8px; font-size: 15px; color: #334155; margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); line-height: 1.6;'>
 <div style='font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 12px;'>🧾 Comunicato Ufficiale Esercizio Riscatto</div>
 Il <b>{sq_acquirente}</b> comunica l'intenzione di esercitare l'opzione di acquisto a titolo definitivo per <b style='color: #0F172A; font-size: 17px;'>{g_riscatto}</b>, attualmente di proprietà del <b>{sq_cedente}</b>.<br><br>
 <ul style='margin-top: 5px; margin-bottom: 5px; padding-left: 20px;'>
@@ -1549,935 +1532,926 @@ Il <b>{sq_acquirente}</b> comunica l'intenzione di esercitare l'opzione di acqui
 <li><b>Nuovo Contratto:</b> Il giocatore siglerà un accordo di <b>{anni_nuovi} anni</b> effettivi a partire dalla prossima stagione sportiva.</li>
 </ul>
 </div>"""
-                    st.markdown(scontrino_riscatto_html, unsafe_allow_html=True)
+                        st.markdown(scontrino_riscatto_html, unsafe_allow_html=True)
                     
-                    if st.button("Prenota Riscatto (Effettivo al 1° Luglio)", type="primary"):
-                        g_r_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
-                        g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_riscatto)
-                        g_ced_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
+                        if st.button("Prenota Riscatto (Effettivo al 1° Luglio)", type="primary"):
+                            g_r_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
+                            g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_riscatto)
+                            g_ced_obj['riscatto_prenotato'] = {'cifra': prezzo_r, 'anni': anni_nuovi}
+                            save_data(db, DB_PATH)
+                            log_evento(sq_cedente, "💰", f"ha ufficializzato il riscatto di **{g_riscatto}** al **{sq_acquirente}** per **{prezzo_r} M**.")
+                            st.session_state.msg_riscatto = f"💰 Riscatto di {g_riscatto} prenotato correttamente!"
+                            st.rerun()
+                            
+                        if "msg_riscatto" in st.session_state:
+                            st.success(st.session_state.msg_riscatto)
+                            del st.session_state.msg_riscatto
+
+                st.divider()
+                st.subheader("❌ Risoluzione Anticipata Prestito")
+                if in_prestito:
+                    g_risoluzione = st.selectbox("Calciatore selezionato", [g['nome'] for g in in_prestito], key="risoluzione")
+                    st.info("Interrompendo il prestito, il giocatore tornerà immediatamente attivo nella rosa della società proprietaria e l'eventuale accordo di riscatto verrà annullato.")
+                    
+                    if st.button("Interrompi Prestito Subito", type="primary"):
+                        # 1. Rimuoviamo il giocatore dalla rosa di chi l'aveva ricevuto
+                        g_acq_obj = next(g for g in db[sq_acquirente]['rosa'] if g['nome'] == g_risoluzione)
+                        db[sq_acquirente]['rosa'].remove(g_acq_obj)
+                        
+                        # 2. Ripuliamo tutti i vincoli di prestito dalla scheda originale della squadra madre
+                        g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_risoluzione)
+                        for key in ['prestato_a', 'perc_stipendio_pagato', 'accordo_riscatto', 'anni_prestito_rimanenti', 'riscatto_prenotato']:
+                            g_ced_obj.pop(key, None)
+                            
                         save_data(db, DB_PATH)
-                        log_evento(sq_cedente, "💰", f"ha ufficializzato il riscatto di **{g_riscatto}** al **{sq_acquirente}** per **{prezzo_r} M**.")
-                        st.session_state.msg_riscatto = f"💰 Riscatto di {g_riscatto} prenotato correttamente!"
+                        log_evento(sq_cedente, "🔙", f"ha richiamato **{g_risoluzione}** dal prestito. Il giocatore lascia il **{sq_acquirente}**.")
+                        st.session_state.msg_risoluzione = f"🔙 Prestito di {g_risoluzione} interrotto correttamente!"
                         st.rerun()
                         
-                    if "msg_riscatto" in st.session_state:
-                        st.success(st.session_state.msg_riscatto)
-                        del st.session_state.msg_riscatto
+                    if "msg_risoluzione" in st.session_state:
+                        st.success(st.session_state.msg_risoluzione)
+                        del st.session_state.msg_risoluzione
+                else:
+                    st.write("Nessun giocatore in prestito tra queste due squadre.")
 
-            st.divider()
-            st.subheader("❌ Risoluzione Anticipata Prestito")
-            if in_prestito:
-                g_risoluzione = st.selectbox("Calciatore selezionato", [g['nome'] for g in in_prestito], key="risoluzione")
-                st.info("Interrompendo il prestito, il giocatore tornerà immediatamente attivo nella rosa della società proprietaria e l'eventuale accordo di riscatto verrà annullato.")
-                
-                if st.button("Interrompi Prestito Subito", type="primary"):
-                    # 1. Rimuoviamo il giocatore dalla rosa di chi l'aveva ricevuto
-                    g_acq_obj = next(g for g in db[sq_acquirente]['rosa'] if g['nome'] == g_risoluzione)
-                    db[sq_acquirente]['rosa'].remove(g_acq_obj)
-                    
-                    # 2. Ripuliamo tutti i vincoli di prestito dalla scheda originale della squadra madre
-                    g_ced_obj = next(g for g in db[sq_cedente]['rosa'] if g['nome'] == g_risoluzione)
-                    for key in ['prestato_a', 'perc_stipendio_pagato', 'accordo_riscatto', 'anni_prestito_rimanenti', 'riscatto_prenotato']:
-                        g_ced_obj.pop(key, None)
-                        
-                    save_data(db, DB_PATH)
-                    log_evento(sq_cedente, "🔙", f"ha richiamato **{g_risoluzione}** dal prestito. Il giocatore lascia il **{sq_acquirente}**.")
-                    st.session_state.msg_risoluzione = f"🔙 Prestito di {g_risoluzione} interrotto correttamente!"
-                    st.rerun()
-                    
-                if "msg_risoluzione" in st.session_state:
-                    st.success(st.session_state.msg_risoluzione)
-                    del st.session_state.msg_risoluzione
-            else:
-                st.write("Nessun giocatore in prestito tra queste due squadre.")
-
-# ==========================================
-# 5. CALENDARIO E PARTITE
-# ==========================================
-elif menu == "5. Calendario & Partite":
-    st.header("🗓️ Calendario")
+elif menu == "4. Competizioni":
+    st.header("🏆 Centro Competizioni OFL")
     
-    # --- CSS MAGICO PER GLI INPUT DEI GOL (V2.0) ---
-    st.markdown("""
-    <style>
-    /* Nasconde i bottoni +/- nativi del browser */
-    input[type=number]::-webkit-inner-spin-button, 
-    input[type=number]::-webkit-outer-spin-button { 
-        -webkit-appearance: none; 
-        margin: 0; 
-    }
-    input[type=number] {
-        -moz-appearance: textfield;
-    }
-    
-    /* ANNIHILAZIONE DEI BOTTONI +/- DI STREAMLIT */
-    [data-testid="stNumberInputStepDown"], 
-    [data-testid="stNumberInputStepUp"] {
-        display: none !important;
-    }
-    
-    /* Forza il testo al centro in tutti i box dei gol */
-    div[data-testid="stNumberInputContainer"] input {
-        text-align: center !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    if not st.session_state.is_admin:
-        st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può generare il calendario o inserire i risultati di una giornata.")
-    else:
-        if len(db) != 8:
-            st.error(f"Per generare il calendario servono 8 squadre. Attualmente ce ne sono {len(db)}.")
-        else:
-            if not calendario:
-                c_giornate, c_btn = st.columns([1, 3])
-                num_g = c_giornate.number_input("Numero di Giornate", min_value=1, max_value=76, value=36)
-                
-                c_btn.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-                
-                if c_btn.button("🚀 Genera Calendario Ufficiale", type="primary"):
-                    calendario = genera_calendario_berger(list(db.keys()), num_g)
-                    save_data(calendario, CAL_PATH)
-                    st.success(f"Calendario di {num_g} giornate generato con successo!")
-                    st.rerun()
-            
-            if calendario:
-                
-                st.info("👇 Scorri per vedere tutte le giornate.")
-                
-                for giornata_idx, giornata_dati in enumerate(calendario):
-                    
-                    st.subheader(f"Partite Giornata {giornata_idx + 1}")
-                    
-                    # Controlliamo se la giornata è già stata giocata e salvata
-                    giornata_chiusa = False
-                    if giornata_dati and giornata_dati[0].get("giocata", False):
-                        giornata_chiusa = True
-                    
-                    if giornata_chiusa:
-                        # ==========================================
-                        # VISTA "LOCKED" (GIORNATA GIÀ GIOCATA E SALVATA)
-                        # ==========================================
-                        with st.container(border=True):
-                            for idx, match in enumerate(giornata_dati):
-                                
-                                # ---> 1. RICHIAMO DELLA FUNZIONE DRY QUI! <---
-                                disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=True, is_admin=st.session_state.is_admin)
-                                st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) 
-                                
-                            st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali.")
-                    
-                    else:
-                        # ==========================================
-                        # VISTA "EDIT" (GIORNATA DA GIOCARE)
-                        # ==========================================
-                        with st.form(f"giornata_{giornata_idx}"):
-                            for idx, match in enumerate(giornata_dati):
-                                
-                                # ---> 2. RICHIAMO DELLA FUNZIONE DRY ANCHE QUI! <---
-                                disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=False, is_admin=st.session_state.is_admin)
+    tab_cal, tab_class, tab_coppe = st.tabs(["🗓️ Calendario", "🏆 Classifica", "🇪🇺 Coppe"])
 
-                            if st.session_state.is_admin:
-                                if st.form_submit_button(f"Salva Risultati (G. {giornata_idx + 1})", type="primary"):
-                                    gol_map = {}
-                                    for idx, match in enumerate(giornata_dati):
-                                        # ---> 3. CHIAVI AGGIORNATE PER LEGGERE DALLA FUNZIONE <---
-                                        gh = st.session_state[f"g{giornata_idx}_{idx}_h"]
-                                        ga = st.session_state[f"g{giornata_idx}_{idx}_a"]
-                                        
-                                        match["gol_home"] = gh
-                                        match["gol_away"] = ga
-                                        match["giocata"] = True
-
-                                        if not match.get("incassi_assegnati", False):
-                                            if gh > ga:
-                                                incasso = 2.0  
-                                            elif gh == ga:
-                                                incasso = 1.0  
-                                            else:
-                                                incasso = 0.5  
-                                                
-                                            assegna_incasso_stadio(match["home"], db, f"G. {giornata_idx + 1} Camp.", incasso)
-                                            match["incassi_assegnati"] = True
-
-                                        gol_map[match["home"]] = gh
-                                        gol_map[match["away"]] = ga
-                                    
-                                    save_data(db, DB_PATH)
-                                    save_data(calendario, CAL_PATH)
-
-                                    verifica_obiettivi_dinamici()
-                                    
-                                    log_evento("Lega", "📅", f"Risultati della **Giornata {giornata_idx + 1}** ufficializzati.")
-                                    st.rerun() 
-                    
-                    st.divider()
-
-# ==========================================
-# 6. CLASSIFICA E PREMI CAMPIONATO
-# ==========================================
-elif menu == "6. Classifica Campionato":
-    st.header("🏆 Classifica Campionato")
-    if not calendario:
-        st.warning("Nessun calendario trovato.")
-    else:
-        df_c, standings = calcola_classifica(calendario, db.keys())
-
-        # --- TABELLA CLASSIFICA CUSTOM ---
-        html_classifica = """
-        <style>
-        .tabella-classifica {
-            border-collapse: collapse;
-            background-color: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            font-family: sans-serif;
-            margin-bottom: 20px;
-            border: 1px solid #E2E8F0;
-        }
-        .tabella-classifica th {
-            background-color: #F8FAFC;
-            color: #64748B;
-            padding: 12px 15px;
-            font-size: 13px;
-            text-align: center; /* Centriamo le colonne statistiche */
-            border-bottom: 2px solid #E2E8F0;
-        }
-        .tabella-classifica td {
-            padding: 12px 15px;
-            font-size: 14px;
-            color: #334155;
-            text-align: center; /* Centriamo i valori */
-            border-bottom: 1px solid #F1F5F9;
-        }
-        /* La prima colonna (Squadra) allineata a sinistra e più larga */
-        .tabella-classifica th:first-child, .tabella-classifica td:first-child {
-            text-align: left;
-            width: 250px;
-        }
-        /* Colonne statistiche strette */
-        .tabella-classifica th:not(:first-child), .tabella-classifica td:not(:first-child) {
-            width: 70px;
-        }
-        .tabella-classifica tr:last-child td {
-            border-bottom: none;
-        }
-        .tabella-classifica tr:hover {
-            background-color: #F1F5F9;
-        }
-        </style>
-
-        <table class="tabella-classifica">
-            <tr>
-                <th>Squadra</th><th>Punti</th><th>G</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th>
-            </tr>
-        """
-
-        # Genera le righe della tabella pescando dal DataFrame ordinato
-        for team, row in df_c.iterrows():
-            # Niente spazi segreti usando le parentesi e le singole virgolette!
-            html_classifica += (
-                "<tr>"
-                f"<td><strong>{team}</strong></td>"
-                f"<td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td>"
-                f"<td>{row['G']}</td>"
-                f"<td>{row['V']}</td>"
-                f"<td>{row['N']}</td>"
-                f"<td>{row['P']}</td>"
-                f"<td>{row['GF']}</td>"
-                f"<td>{row['GS']}</td>"
-                f"<td>{row['DR']}</td>"
-                "</tr>"
-            )
-
-        html_classifica += "</table>"
-
-        # Stampa la tabella a schermo
-        st.markdown(html_classifica, unsafe_allow_html=True)
-
-        st.divider()
-
-        squadre_ordinate = df_c.index.tolist()
-        premi_gia_dati = db[squadre_ordinate[0]].get("premi_campionato_dati", False)
-        if not st.session_state.is_admin:
-            st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può distribuire i premi e i ricavi da sponsor.")
-        else:
-            if premi_gia_dati:
-                st.info("✅ **Premi di fine campionato e Sponsor già erogati per questa stagione.**")
-            else: 
-                # --- POPUP CONFERMA PREMI CAMPIONATO ---
-                @st.dialog("🏆 CONFERMA PREMI CAMPIONATO")
-                def popup_conferma_premi_campionato():
-                    st.warning("Stai per accreditare i premi di fine campionato e sbloccare i bonus sponsor. L'operazione è irreversibile.")
-                    if st.button("Sì, sono sicuro. Distribuisci i Premi", type="primary", use_container_width=True):
-                        squadre_ordinate = df_c.index.tolist()
-                        premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
-                        
-                        for pos, nome_sq in enumerate(squadre_ordinate):
-                            team = db[nome_sq]
-                            p_camp = premi_campionato[pos]
-                            team["premi_campionato_dati"] = True
-                            
-                            # 1. PREMIO CAMPIONATO
-                            team['cassa'] = round(team['cassa'] + p_camp, 2)
-                            team['bilancio']['ricavi']['premi_sportivi'] += p_camp
-                            team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
-                            log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
-                            
-                            # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
-                            obiettivi = team.get("sponsor", {}).get("obiettivi", {})
-                            pagati = team.get("sponsor", {}).setdefault("obiettivi_pagati", [])
-
-                            if obiettivi:
-                                ob_br = obiettivi.get("bronzo", "")
-                                if "8° posto" in ob_br and pos < 7 and ob_br not in pagati:
-                                    team['cassa'] = round(team['cassa'] + 8.0, 2)
-                                    team['bilancio']['ricavi']['sponsor'] += 8.0
-                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_br}): +8.0M")
-                                    pagati.append(ob_br)
-                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_br}** incassando **8.0 M**!")
-
-                                ob_ar = obiettivi.get("argento", "")
-                                if "prime 4" in ob_ar and pos < 4 and ob_ar not in pagati:
-                                    team['cassa'] = round(team['cassa'] + 15.0, 2)
-                                    team['bilancio']['ricavi']['sponsor'] += 15.0
-                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_ar}): +15.0M")
-                                    pagati.append(ob_ar)
-                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_ar}** incassando **15.0 M**!")
-
-                                ob_or = obiettivi.get("oro", "")
-                                if "Vinci il Campionato" in ob_or and pos == 0 and ob_or not in pagati:
-                                    team['cassa'] = round(team['cassa'] + 30.0, 2)
-                                    team['bilancio']['ricavi']['sponsor'] += 30.0
-                                    team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_or}): +30.0M")
-                                    pagati.append(ob_or)
-                                    log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_or}** incassando **30.0 M**!")
-
-                        save_data(db, DB_PATH)
-                        st.session_state.msg_premi_camp = "Premi di Campionato e Sponsor distribuiti con successo!"
-                        st.rerun()
-
-                # Richiamo del Popup
-                if st.button("🏆 Distribuisci Premi Campionato", type="primary"):
-                    popup_conferma_premi_campionato()
-                    
-                if "msg_premi_camp" in st.session_state:
-                    st.success(st.session_state.msg_premi_camp)
-                    del st.session_state.msg_premi_camp
-
-# ==========================================
-# 7. COPPE UFFICIALI
-# ==========================================
-elif menu == "7. Coppe (Italia & CL)":
-    st.header("🏆 Gestione Coppe")
-    
-    t_ci, t_cl = st.tabs(["🇮🇹 Coppa Italia", "🇪🇺 Champions League"])
-    
-    # ---------------- COPPA ITALIA ----------------
-    with t_ci:
-        st.subheader("🏆 Coppa Italia")
-        
-        # --- CSS MAGICO PER GLI INPUT DEI GOL (Applicato anche alle Coppe) ---
+    with tab_cal:
+        # --- CSS MAGICO PER GLI INPUT DEI GOL (V2.0) ---
         st.markdown("""
         <style>
+        /* Nasconde i bottoni +/- nativi del browser */
         input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type=number] { -moz-appearance: textfield; }
-        [data-testid="stNumberInputStepDown"], [data-testid="stNumberInputStepUp"] { display: none !important; }
-        div[data-testid="stNumberInputContainer"] input { text-align: center !important; }
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        
+        /* ANNIHILAZIONE DEI BOTTONI +/- DI STREAMLIT */
+        [data-testid="stNumberInputStepDown"], 
+        [data-testid="stNumberInputStepUp"] {
+            display: none !important;
+        }
+        
+        /* Forza il testo al centro in tutti i box dei gol */
+        div[data-testid="stNumberInputContainer"] input {
+            text-align: center !important;
+        }
         </style>
         """, unsafe_allow_html=True)
-
-        # --- ANIMAZIONE SORTEGGIO QUARTI COPPA ITALIA ---
-        if not coppe["ci"].get("quarti"):
-            if st.session_state.is_admin:
-                if "ci_draw_step" not in st.session_state:
-                    if st.button("🎉 Inizia Sorteggio Quarti Coppa Italia", type="primary"):
-                        import random
-                        teams = list(db.keys())
-                        random.shuffle(teams)
-                        st.session_state.ci_shuffled_teams = teams
-                        st.session_state.ci_draw_step = 0
-                        st.session_state.ci_temp_quarti = []
-                        st.rerun()
-                else:
-                    st.markdown("### 🥁 Sorteggio in corso...")
-                    st.divider()
-                    
-                    for m in st.session_state.ci_temp_quarti:
-                        st.markdown(f"<div style='text-align: center; font-size: 20px; padding: 15px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'><b>{m['home']}</b> ⚔️ <b>{m['away']}</b></div>", unsafe_allow_html=True)
-                    
-                    if st.session_state.ci_draw_step < 4:
-                        if st.button("🎱 Estrai Prossimo Accoppiamento", use_container_width=True):
-                            import time
-                            with st.spinner("Mescolamento palline nell'urna..."):
-                                time.sleep(1.2)
-                            i = st.session_state.ci_draw_step * 2
-                            t1 = st.session_state.ci_shuffled_teams[i]
-                            t2 = st.session_state.ci_shuffled_teams[i+1]
-                            st.session_state.ci_temp_quarti.append({"home": t1, "away": t2, "gol_home": 0, "gol_away": 0})
-                            st.session_state.ci_draw_step += 1
-                            st.rerun()
-                    else:
-                        st.success("✅ Tabellone Quarti Completato!")
-                        if st.button("Ufficializza Tabellone Quarti", type="primary", use_container_width=True):
-                            coppe["ci"]["quarti"] = st.session_state.ci_temp_quarti
-                            save_data(coppe, COPPE_PATH)
-                            del st.session_state.ci_draw_step
-                            del st.session_state.ci_shuffled_teams
-                            del st.session_state.ci_temp_quarti
-                            st.rerun()
-            else:
-                st.info("⏳ In attesa del Sorteggio Ufficiale dei Quarti di Finale.")
         
-        if coppe["ci"]["quarti"]:
-            st.write("🔴 **Quarti di Finale (G. 10)**")
-            
-            # Leggiamo dal database se questa fase è già stata chiusa
-            quarti_salvati = coppe["ci"].get("quarti_salvati", False)
-            
-            with st.container(border=True):
-                for i, m in enumerate(coppe["ci"]["quarti"]):
+        if not st.session_state.is_admin:
+            st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può generare il calendario o inserire i risultati di una giornata.")
+        else:
+            if len(db) != 8:
+                st.error(f"Per generare il calendario servono 8 squadre. Attualmente ce ne sono {len(db)}.")
+            else:
+                if not calendario:
+                    c_giornate, c_btn = st.columns([1, 3])
+                    num_g = c_giornate.number_input("Numero di Giornate", min_value=1, max_value=76, value=36)
                     
-                    # 1. RICHIAMO LA FUNZIONE MAGICA (Stampa i team e i gol)
-                    disegna_partita(m, match_id=f"ci_q_{i}", is_locked=quarti_salvati, is_admin=st.session_state.is_admin)
+                    c_btn.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                     
-                    # 2. SELETTORE DEL VINCITORE (Sotto alla partita)
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                    
-                    if quarti_salvati:
-                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa il turno: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
-                    else:
-                        opzioni = ["-", m['home'], m['away']]
-                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
-                        scelta = c_passa.selectbox("Passa il turno:", opzioni, index=default_idx, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
-                        m['vincente'] = scelta if scelta != "-" else None
-                    
-                    if i < len(coppe["ci"]["quarti"]) - 1:
-                        st.divider()
-                    else:
-                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
-            
-            if st.session_state.is_admin:
-                if not quarti_salvati:
-                    # Rinominato il bottone in "Archivia"
-                    if st.button("Salva e Archivia Quarti Coppa Italia", type="primary"): 
-                        vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
-                        # Controllo di sicurezza: non ti fa archiviare se hai lasciato il trattino "-"
-                        if None in vincitori:
-                            st.error("⚠️ Seleziona chi passa il turno in tutte le partite prima di archiviare!")
-                        else:
-                            coppe["ci"]["quarti_salvati"] = True
-                            save_data(coppe, COPPE_PATH)
-                            verifica_obiettivi_dinamici()
-                            st.rerun()
-                else:
-                    st.info("🔒 **Quarti di Finale archiviati.**")
-                    if not coppe["ci"]["semis"] and st.button("Genera Semifinali Coppa Italia", type="primary"):
-                        vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
-                        coppe["ci"]["semis"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}, {"home": vincitori[2], "away": vincitori[3], "gol_home": 0, "gol_away": 0}]
-                        save_data(coppe, COPPE_PATH)
-                        st.rerun()
-
-        if coppe["ci"]["semis"]:
-            st.write("🟡 **Semifinali (G. 20)**")
-            semis_salvate = coppe["ci"].get("semis_salvate", False)
-            
-            with st.container(border=True):
-                for i, m in enumerate(coppe["ci"]["semis"]):
-                    
-                    # 1. RICHIAMO DELLA FUNZIONE DRY
-                    disegna_partita(m, match_id=f"ci_s_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
-                    
-                    # 2. SELETTORE VINCITORE
-                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                    if semis_salvate:
-                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
-                    else:
-                        opzioni = ["-", m['home'], m['away']]
-                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
-                        scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
-                        m['vincente'] = scelta if scelta != "-" else None
-                    
-                    if i < len(coppe["ci"]["semis"]) - 1:
-                        st.divider()
-                    else:
-                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
-            
-            if st.session_state.is_admin:
-                if not semis_salvate:
-                    if st.button("Salva e Archivia Semifinali Coppa Italia", type="primary"): 
-                        vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
-                        if None in vincitori:
-                            st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
-                        else:
-                            coppe["ci"]["semis_salvate"] = True
-                            save_data(coppe, COPPE_PATH)
-                            verifica_obiettivi_dinamici()
-                            st.rerun()
-                else:
-                    st.info("🔒 **Semifinali archiviate.**")
-                    if not coppe["ci"]["finale"] and st.button("Genera Finale Coppa Italia", type="primary"):
-                        vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
-                        perdenti = [m['home'] if m.get('vincente') == m['away'] else m['away'] for m in coppe["ci"]["semis"]]
-                        coppe["ci"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
-                        coppe["ci"]["perse_semis"] = perdenti
-                        save_data(coppe, COPPE_PATH)
+                    if c_btn.button("🚀 Genera Calendario Ufficiale", type="primary"):
+                        calendario = genera_calendario_berger(list(db.keys()), num_g)
+                        save_data(calendario, CAL_PATH)
+                        st.success(f"Calendario di {num_g} giornate generato con successo!")
                         st.rerun()
                 
-        if coppe["ci"]["finale"]:
-            st.write("🟢 **Finale (G. 28)**")
-            finale_salvata = coppe["ci"].get("finale_salvata", False)
-            
-            with st.container(border=True):
-                m = coppe["ci"]["finale"][0]
-                
-                # 1. RICHIAMO DELLA FUNZIONE DRY
-                disegna_partita(m, match_id="ci_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
-                
-                # 2. SELETTORE VINCITORE
-                _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                if finale_salvata:
-                    c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
-                else:
-                    opzioni = ["-", m['home'], m['away']]
-                    default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
-                    scelta = c_passa.selectbox("VINCITORE Coppa Italia:", opzioni, index=default_idx, key="ci_f_v", disabled=not st.session_state.is_admin)
-                    m['vincente'] = scelta if scelta != "-" else None
-
-                st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
-            
-            if st.session_state.is_admin:
-                if not finale_salvata:
-                    if st.button("Salva e Archivia Finale Coppa Italia", type="primary"): 
-                        vincente = m.get('vincente')
-                        if not vincente:
-                            st.error("⚠️ Seleziona il vincitore prima di archiviare!")
+                if calendario:
+                    
+                    st.info("👇 Scorri per vedere tutte le giornate.")
+                    
+                    for giornata_idx, giornata_dati in enumerate(calendario):
+                        
+                        st.subheader(f"Partite Giornata {giornata_idx + 1}")
+                        
+                        # Controlliamo se la giornata è già stata giocata e salvata
+                        giornata_chiusa = False
+                        if giornata_dati and giornata_dati[0].get("giocata", False):
+                            giornata_chiusa = True
+                        
+                        if giornata_chiusa:
+                            # ==========================================
+                            # VISTA "LOCKED" (GIORNATA GIÀ GIOCATA E SALVATA)
+                            # ==========================================
+                            with st.container(border=True):
+                                for idx, match in enumerate(giornata_dati):
+                                    
+                                    # ---> 1. RICHIAMO DELLA FUNZIONE DRY QUI! <---
+                                    disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=True, is_admin=st.session_state.is_admin)
+                                    st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True) 
+                                    
+                                st.info(f"🔒 **Giornata {giornata_idx + 1} archiviata.** I risultati sono ufficiali.")
+                        
                         else:
-                            coppe["ci"]["finale_salvata"] = True
-                            save_data(coppe, COPPE_PATH)
-                            verifica_obiettivi_dinamici()
-                            st.rerun()
-                else:
-                    st.info("🔒 **Finale archiviata.**")
-                    # --- POPUP CONFERMA PREMI COPPA ITALIA ---
-                    @st.dialog("🇮🇹 CONFERMA PREMI COPPA ITALIA")
-                    def popup_conferma_premi_ci(m_finale):
-                        st.warning("Stai per accreditare i fondi per la vittoria della Coppa Italia. Confermi?")
-                        if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
-                            vincente = m_finale.get('vincente')
-                            perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
+                            # ==========================================
+                            # VISTA "EDIT" (GIORNATA DA GIOCARE)
+                            # ==========================================
+                            with st.form(f"giornata_{giornata_idx}"):
+                                for idx, match in enumerate(giornata_dati):
+                                    
+                                    # ---> 2. RICHIAMO DELLA FUNZIONE DRY ANCHE QUI! <---
+                                    disegna_partita(match, match_id=f"g{giornata_idx}_{idx}", is_locked=False, is_admin=st.session_state.is_admin)
+
+                                if st.session_state.is_admin:
+                                    if st.form_submit_button(f"Salva Risultati (G. {giornata_idx + 1})", type="primary"):
+                                        gol_map = {}
+                                        for idx, match in enumerate(giornata_dati):
+                                            # ---> 3. CHIAVI AGGIORNATE PER LEGGERE DALLA FUNZIONE <---
+                                            gh = st.session_state[f"g{giornata_idx}_{idx}_h"]
+                                            ga = st.session_state[f"g{giornata_idx}_{idx}_a"]
+                                            
+                                            match["gol_home"] = gh
+                                            match["gol_away"] = ga
+                                            match["giocata"] = True
+
+                                            if not match.get("incassi_assegnati", False):
+                                                if gh > ga:
+                                                    incasso = 2.0  
+                                                elif gh == ga:
+                                                    incasso = 1.0  
+                                                else:
+                                                    incasso = 0.5  
+                                                    
+                                                assegna_incasso_stadio(match["home"], db, f"G. {giornata_idx + 1} Camp.", incasso)
+                                                match["incassi_assegnati"] = True
+
+                                            gol_map[match["home"]] = gh
+                                            gol_map[match["away"]] = ga
+                                        
+                                        save_data(db, DB_PATH)
+                                        save_data(calendario, CAL_PATH)
+
+                                        verifica_obiettivi_dinamici()
+                                        
+                                        log_evento("Lega", "📅", f"Risultati della **Giornata {giornata_idx + 1}** ufficializzati.")
+                                        st.rerun() 
+                        
+                        st.divider()
+
+    with tab_class:
+        if not calendario:
+            st.warning("Nessun calendario trovato.")
+        else:
+            df_c, standings = calcola_classifica(calendario, db.keys())
+
+            # --- TABELLA CLASSIFICA CUSTOM ---
+            html_classifica = """
+            <style>
+            .tabella-classifica {
+                border-collapse: collapse;
+                background-color: white;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                font-family: sans-serif;
+                margin-bottom: 20px;
+                border: 1px solid #E2E8F0;
+            }
+            .tabella-classifica th {
+                background-color: #F8FAFC;
+                color: #64748B;
+                padding: 12px 15px;
+                font-size: 13px;
+                text-align: center; /* Centriamo le colonne statistiche */
+                border-bottom: 2px solid #E2E8F0;
+            }
+            .tabella-classifica td {
+                padding: 12px 15px;
+                font-size: 14px;
+                color: #334155;
+                text-align: center; /* Centriamo i valori */
+                border-bottom: 1px solid #F1F5F9;
+            }
+            /* La prima colonna (Squadra) allineata a sinistra e più larga */
+            .tabella-classifica th:first-child, .tabella-classifica td:first-child {
+                text-align: left;
+                width: 250px;
+            }
+            /* Colonne statistiche strette */
+            .tabella-classifica th:not(:first-child), .tabella-classifica td:not(:first-child) {
+                width: 70px;
+            }
+            .tabella-classifica tr:last-child td {
+                border-bottom: none;
+            }
+            .tabella-classifica tr:hover {
+                background-color: #F1F5F9;
+            }
+            </style>
+
+            <table class="tabella-classifica">
+                <tr>
+                    <th>Squadra</th><th>Punti</th><th>G</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th>
+                </tr>
+            """
+
+            # Genera le righe della tabella pescando dal DataFrame ordinato
+            for team, row in df_c.iterrows():
+                # Niente spazi segreti usando le parentesi e le singole virgolette!
+                html_classifica += (
+                    "<tr>"
+                    f"<td><strong>{team}</strong></td>"
+                    f"<td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td>"
+                    f"<td>{row['G']}</td>"
+                    f"<td>{row['V']}</td>"
+                    f"<td>{row['N']}</td>"
+                    f"<td>{row['P']}</td>"
+                    f"<td>{row['GF']}</td>"
+                    f"<td>{row['GS']}</td>"
+                    f"<td>{row['DR']}</td>"
+                    "</tr>"
+                )
+
+            html_classifica += "</table>"
+
+            # Stampa la tabella a schermo
+            st.markdown(html_classifica, unsafe_allow_html=True)
+
+            st.divider()
+
+            squadre_ordinate = df_c.index.tolist()
+            premi_gia_dati = db[squadre_ordinate[0]].get("premi_campionato_dati", False)
+            if not st.session_state.is_admin:
+                st.error("🔒 Accesso riservato. Solo l'Amministratore della Lega può distribuire i premi e i ricavi da sponsor.")
+            else:
+                if premi_gia_dati:
+                    st.info("✅ **Premi di fine campionato e Sponsor già erogati per questa stagione.**")
+                else: 
+                    # --- POPUP CONFERMA PREMI CAMPIONATO ---
+                    @st.dialog("🏆 CONFERMA PREMI CAMPIONATO")
+                    def popup_conferma_premi_campionato():
+                        st.warning("Stai per accreditare i premi di fine campionato e sbloccare i bonus sponsor. L'operazione è irreversibile.")
+                        if st.button("Sì, sono sicuro. Distribuisci i Premi", type="primary", use_container_width=True):
+                            squadre_ordinate = df_c.index.tolist()
+                            premi_campionato = [50.0, 52.0, 55.0, 58.0, 62.0, 65.0, 68.0, 70.0]
                             
-                            # --- 1. VINCITORE (35 M) ---
-                            premio_v = 35.0
-                            db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
-                            db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
-                            db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Coppa Italia: +{premio_v}M")
-                            log_evento(vincente, "🇮🇹", f"ha vinto la Coppa Italia e incassa **{premio_v} M**!")
-
-                            # --- 2. FINALISTA (20 M) ---
-                            premio_f = 20.0
-                            db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
-                            db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
-                            db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Coppa Italia: +{premio_f}M")
-                            log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Coppa Italia.")
-
-                            # --- 3. SEMIFINALISTI (10 M) ---
-                            premio_s = 10.0
-                            for sq in coppe["ci"].get("perse_semis", []): 
-                                db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
-                                db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
-                                db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Coppa Italia: +{premio_s}M")
-                                log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Coppa Italia.")
+                            for pos, nome_sq in enumerate(squadre_ordinate):
+                                team = db[nome_sq]
+                                p_camp = premi_campionato[pos]
+                                team["premi_campionato_dati"] = True
                                 
-                            coppe["ci"]["premi_dati"] = True
+                                # 1. PREMIO CAMPIONATO
+                                team['cassa'] = round(team['cassa'] + p_camp, 2)
+                                team['bilancio']['ricavi']['premi_sportivi'] += p_camp
+                                team['bilancio']['storico_movimenti'].append(f"Premio Campionato ({pos+1}°): +{p_camp}M")
+                                log_evento(nome_sq, "🏆", f"ha incassato **{p_camp} M** per essersi classificata al {pos+1}° posto in Campionato.")
+                                
+                                # 2. CONTROLLO OBIETTIVI DI PIAZZAMENTO A FINE ANNO
+                                obiettivi = team.get("sponsor", {}).get("obiettivi", {})
+                                pagati = team.get("sponsor", {}).setdefault("obiettivi_pagati", [])
+
+                                if obiettivi:
+                                    ob_br = obiettivi.get("bronzo", "")
+                                    if "8° posto" in ob_br and pos < 7 and ob_br not in pagati:
+                                        team['cassa'] = round(team['cassa'] + 8.0, 2)
+                                        team['bilancio']['ricavi']['sponsor'] += 8.0
+                                        team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_br}): +8.0M")
+                                        pagati.append(ob_br)
+                                        log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_br}** incassando **8.0 M**!")
+
+                                    ob_ar = obiettivi.get("argento", "")
+                                    if "prime 4" in ob_ar and pos < 4 and ob_ar not in pagati:
+                                        team['cassa'] = round(team['cassa'] + 15.0, 2)
+                                        team['bilancio']['ricavi']['sponsor'] += 15.0
+                                        team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_ar}): +15.0M")
+                                        pagati.append(ob_ar)
+                                        log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_ar}** incassando **15.0 M**!")
+
+                                    ob_or = obiettivi.get("oro", "")
+                                    if "Vinci il Campionato" in ob_or and pos == 0 and ob_or not in pagati:
+                                        team['cassa'] = round(team['cassa'] + 30.0, 2)
+                                        team['bilancio']['ricavi']['sponsor'] += 30.0
+                                        team['bilancio']['storico_movimenti'].append(f"Bonus Sponsor Piazzamento ({ob_or}): +30.0M")
+                                        pagati.append(ob_or)
+                                        log_evento(nome_sq, "🎯", f"ha sbloccato l'obiettivo stagionale **{ob_or}** incassando **30.0 M**!")
+
                             save_data(db, DB_PATH)
-                            save_data(coppe, COPPE_PATH)
-                            st.session_state.msg_premi_ci = "Premi Coppa Italia erogati con successo!"
+                            st.session_state.msg_premi_camp = "Premi di Campionato e Sponsor distribuiti con successo!"
                             st.rerun()
 
-                    st.info("🔒 **Finale archiviata.**")
-                    if not coppe["ci"]["premi_dati"]:
-                        if st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
-                            popup_conferma_premi_ci(m)
-                            
-                    if "msg_premi_ci" in st.session_state:
-                        st.success(st.session_state.msg_premi_ci)
-                        del st.session_state.msg_premi_ci
+                    # Richiamo del Popup
+                    if st.button("🏆 Distribuisci Premi Campionato", type="primary"):
+                        popup_conferma_premi_campionato()
+                        
+                    if "msg_premi_camp" in st.session_state:
+                        st.success(st.session_state.msg_premi_camp)
+                        del st.session_state.msg_premi_camp
+
+    with tab_coppe:
+        t_ci, t_cl = st.tabs(["🇮🇹 Coppa Italia", "🇪🇺 Champions League"])
     
-    # ---------------- CHAMPIONS LEAGUE ----------------
-    with t_cl:
-        st.subheader("🏆 Champions League")
-        
-        stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
-
-        # --- FASE 1: ANIMAZIONE ESTRAZIONE GIRONI ---
-        if not coppe["cl"].get("gir_A"):
-            if st.session_state.is_admin:
-                if "cl_draw_step" not in st.session_state:
-                    if st.button("🎉 Inizia Sorteggio Gironi Champions League", type="primary"):
-                        import random
-                        teams = list(db.keys())
-                        random.shuffle(teams)
-                        st.session_state.cl_shuffled_teams = teams
-                        st.session_state.cl_draw_step = 0
-                        st.session_state.cl_gir_A = []
-                        st.session_state.cl_gir_B = []
-                        st.rerun()
-                else:
-                    st.markdown("### 🥁 Sorteggio Gironi in corso...")
-                    st.divider()
-                    
-                    colA, colB = st.columns(2)
-                    with colA:
-                        st.markdown("<div style='background-color: #EFF6FF; padding: 15px; border-radius: 8px; border: 2px solid #BFDBFE; height: 100%;'>", unsafe_allow_html=True)
-                        st.markdown("<h4 style='color: #1D4ED8; text-align: center;'>🔵 Girone A</h4>", unsafe_allow_html=True)
-                        for t in st.session_state.cl_gir_A: 
-                            st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #DBEAFE;'>{t}</div>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                        
-                    with colB:
-                        st.markdown("<div style='background-color: #FEF2F2; padding: 15px; border-radius: 8px; border: 2px solid #FECACA; height: 100%;'>", unsafe_allow_html=True)
-                        st.markdown("<h4 style='color: #B91C1C; text-align: center;'>🔴 Girone B</h4>", unsafe_allow_html=True)
-                        for t in st.session_state.cl_gir_B: 
-                            st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #FEE2E2;'>{t}</div>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    st.write("")
-                    
-                    if st.session_state.cl_draw_step < 8:
-                        girone_dest = "A 🔵" if st.session_state.cl_draw_step % 2 == 0 else "B 🔴"
-                        if st.button(f"🎱 Estrai squadra per il Girone {girone_dest}", use_container_width=True):
-                            import time
-                            with st.spinner("Apertura pallina..."):
-                                time.sleep(1.2)
-                            t = st.session_state.cl_shuffled_teams[st.session_state.cl_draw_step]
-                            if st.session_state.cl_draw_step % 2 == 0:
-                                st.session_state.cl_gir_A.append(t)
-                            else:
-                                st.session_state.cl_gir_B.append(t)
-                            st.session_state.cl_draw_step += 1
-                            st.rerun()
-                    else:
-                        st.success("✅ Squadre Assegnate ai Gironi!")
-                        if st.button("Ufficializza Gironi e passa ai Calendari", type="primary", use_container_width=True):
-                            coppe["cl"]["gir_A"] = st.session_state.cl_gir_A
-                            coppe["cl"]["gir_B"] = st.session_state.cl_gir_B
-                            save_data(coppe, COPPE_PATH)
-                            del st.session_state.cl_draw_step
-                            del st.session_state.cl_shuffled_teams
-                            del st.session_state.cl_gir_A
-                            del st.session_state.cl_gir_B
-                            st.rerun()
-            else:
-                st.info("⏳ In attesa del Sorteggio dei Gironi.")
-
-        # --- FASE 2: ANIMAZIONE STESURA CALENDARI ---
-        elif coppe["cl"].get("gir_A") and not coppe["cl"].get("cal_A"):
-            if st.session_state.is_admin:
-                if "cl_cal_step" not in st.session_state:
-                    if st.button("📅 Inizia Stesura Calendari Champions League", type="primary"):
-                        st.session_state.cl_temp_cal_A = genera_calendario_berger(coppe["cl"]["gir_A"], 6)
-                        st.session_state.cl_temp_cal_B = genera_calendario_berger(coppe["cl"]["gir_B"], 6)
-                        st.session_state.cl_cal_step = 0
-                        st.rerun()
-                else:
-                    st.markdown("### 🗓️ Composizione Calendario in corso...")
-                    st.divider()
-                    
-                    for step in range(st.session_state.cl_cal_step):
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown(f"**Giornata {step+1} - Girone A**")
-                            for m in st.session_state.cl_temp_cal_A[step]:
-                                st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
-                        with c2:
-                            st.markdown(f"**Giornata {step+1} - Girone B**")
-                            for m in st.session_state.cl_temp_cal_B[step]:
-                                st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
-                        st.write("")
-                        
-                    if st.session_state.cl_cal_step < 6:
-                        if st.button(f"Rivela Accoppiamenti Giornata {st.session_state.cl_cal_step + 1}", use_container_width=True):
-                            import time
-                            with st.spinner("Elaborazione algoritmi..."):
-                                time.sleep(1)
-                            st.session_state.cl_cal_step += 1
-                            st.rerun()
-                    else:
-                        st.success("✅ Calendari Completati!")
-                        if st.button("Ufficializza Calendari Champions", type="primary", use_container_width=True):
-                            coppe["cl"]["cal_A"] = st.session_state.cl_temp_cal_A
-                            coppe["cl"]["cal_B"] = st.session_state.cl_temp_cal_B
-                            save_data(coppe, COPPE_PATH)
-                            del st.session_state.cl_cal_step
-                            del st.session_state.cl_temp_cal_A
-                            del st.session_state.cl_temp_cal_B
-                            st.rerun()
-
-        # --- FASE 3: MOSTRA I CALENDARI DOPO L'UFFICIALITÀ ---
-        if coppe["cl"].get("gir_A") and coppe["cl"].get("cal_A"):
-            st.write("### Fase a Gironi")
+        # ---------------- COPPA ITALIA ----------------
+        with t_ci:
+            st.subheader("🏆 Coppa Italia")
             
-            gironi_salvati = coppe["cl"].get("gironi_salvati", False)
-            
-            # --- CALCOLO DINAMICO PUNTI E STATISTICHE ---
-            stats_A = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_A"]}
-            stats_B = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_B"]}
-            
-            def calcola_stats(calendario, dict_stats):
-                for md in calendario:
-                    for m in md:
-                        if m.get("giocata", False):
-                            gh, ga = m["gol_home"], m["gol_away"]
-                            dict_stats[m["home"]]["GF"] += gh
-                            dict_stats[m["home"]]["GS"] += ga
-                            dict_stats[m["away"]]["GF"] += ga
-                            dict_stats[m["away"]]["GS"] += gh
-                            if gh > ga: dict_stats[m["home"]]["Punti"] += 3
-                            elif gh == ga: 
-                                dict_stats[m["home"]]["Punti"] += 1
-                                dict_stats[m["away"]]["Punti"] += 1
-                            else: dict_stats[m["away"]]["Punti"] += 3
-                for t, stats in dict_stats.items():
-                    stats["DR"] = stats["GF"] - stats["GS"]
-                            
-            calcola_stats(coppe["cl"].get("cal_A", []), stats_A)
-            calcola_stats(coppe["cl"].get("cal_B", []), stats_B)
-            
-            df_A = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_A.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
-            df_B = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_B.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
-
+            # --- CSS MAGICO PER GLI INPUT DEI GOL (Applicato anche alle Coppe) ---
             st.markdown("""
             <style>
-            .tabella-gironi { border-collapse: collapse; width: 100%; background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); font-family: sans-serif; margin-bottom: 20px; border: 1px solid #E2E8F0; }
-            .tabella-gironi th { background-color: #F8FAFC; color: #64748B; padding: 12px 15px; font-size: 13px; text-align: center; border-bottom: 2px solid #E2E8F0; }
-            .tabella-gironi td { padding: 12px 15px; font-size: 14px; color: #334155; text-align: center; border-bottom: 1px solid #F1F5F9; }
-            .tabella-gironi th:first-child, .tabella-gironi td:first-child { text-align: left; }
-            .tabella-gironi tr:hover { background-color: #F1F5F9; }
+            input[type=number]::-webkit-inner-spin-button, 
+            input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+            input[type=number] { -moz-appearance: textfield; }
+            [data-testid="stNumberInputStepDown"], [data-testid="stNumberInputStepUp"] { display: none !important; }
+            div[data-testid="stNumberInputContainer"] input { text-align: center !important; }
             </style>
             """, unsafe_allow_html=True)
 
-            colA, colB = st.columns(2)
-            
-            with colA:
-                st.markdown("#### 🔵 Girone A")
-                html_A = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
-                for _, row in df_A.iterrows():
-                    html_A += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
-                html_A += "</table>"
-                st.markdown(html_A, unsafe_allow_html=True)
-                
-                with st.expander("Calendario Girone A"):
-                    for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
-                        gior = 2
-                        st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
-                        for m_idx, m in enumerate(md):
-                            partita_bloccata = gironi_salvati or m.get("giocata", False)
-                            
-                            # Magia delle colonne nidificate per aggiungere la checkbox
-                            c_partita, c_spunta = st.columns([9, 1])
-                            with c_partita:
-                                disegna_partita(m, match_id=f"cl_a_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
-                            with c_spunta:
-                                st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                                if partita_bloccata:
-                                    st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
-                                else:
-                                    m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_a_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+            # --- ANIMAZIONE SORTEGGIO QUARTI COPPA ITALIA ---
+            if not coppe["ci"].get("quarti"):
+                if st.session_state.is_admin:
+                    if "ci_draw_step" not in st.session_state:
+                        if st.button("🎉 Inizia Sorteggio Quarti Coppa Italia", type="primary"):
+                            import random
+                            teams = list(db.keys())
+                            random.shuffle(teams)
+                            st.session_state.ci_shuffled_teams = teams
+                            st.session_state.ci_draw_step = 0
+                            st.session_state.ci_temp_quarti = []
+                            st.rerun()
+                    else:
+                        st.markdown("### 🥁 Sorteggio in corso...")
                         st.divider()
-            
-            with colB:
-                st.markdown("#### 🔴 Girone B")
-                html_B = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
-                for _, row in df_B.iterrows():
-                    html_B += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
-                html_B += "</table>"
-                st.markdown(html_B, unsafe_allow_html=True)
-                
-                with st.expander("Calendario Girone B"):
-                    for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
-                        gior = 2
-                        st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
-                        for m_idx, m in enumerate(md):
-                            partita_bloccata = gironi_salvati or m.get("giocata", False)
-                            
-                            c_partita, c_spunta = st.columns([9, 1])
-                            with c_partita:
-                                disegna_partita(m, match_id=f"cl_b_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
-                            with c_spunta:
-                                st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                                if partita_bloccata:
-                                    st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
-                                else:
-                                    m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_b_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
-                        st.divider()
-
-            if st.session_state.is_admin:
-                if not gironi_salvati:
-                    btn_salva, btn_archivia = st.columns(2)
-                    if btn_salva.button("💾 Salva Risultati Parziali", type="secondary", use_container_width=True, key="btn_salva_cl"):
-                        save_data(coppe, COPPE_PATH)
-                        verifica_obiettivi_dinamici()
-                        st.success("Risultati parziali salvati!.")
-                        st.rerun()
                         
-                    if btn_archivia.button("🔒 Archivia Gironi Champions League", type="primary", use_container_width=True, key="btn_archivia_cl"):
-                        coppe["cl"]["gironi_salvati"] = True
-                        save_data(coppe, COPPE_PATH)
-                        verifica_obiettivi_dinamici()
-                        st.rerun()
+                        for m in st.session_state.ci_temp_quarti:
+                            st.markdown(f"<div style='text-align: center; font-size: 20px; padding: 15px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'><b>{m['home']}</b> ⚔️ <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                        
+                        if st.session_state.ci_draw_step < 4:
+                            if st.button("🎱 Estrai Prossimo Accoppiamento", use_container_width=True):
+                                import time
+                                with st.spinner("Mescolamento palline nell'urna..."):
+                                    time.sleep(1.2)
+                                i = st.session_state.ci_draw_step * 2
+                                t1 = st.session_state.ci_shuffled_teams[i]
+                                t2 = st.session_state.ci_shuffled_teams[i+1]
+                                st.session_state.ci_temp_quarti.append({"home": t1, "away": t2, "gol_home": 0, "gol_away": 0})
+                                st.session_state.ci_draw_step += 1
+                                st.rerun()
+                        else:
+                            st.success("✅ Tabellone Quarti Completato!")
+                            if st.button("Ufficializza Tabellone Quarti", type="primary", use_container_width=True):
+                                coppe["ci"]["quarti"] = st.session_state.ci_temp_quarti
+                                save_data(coppe, COPPE_PATH)
+                                del st.session_state.ci_draw_step
+                                del st.session_state.ci_shuffled_teams
+                                del st.session_state.ci_temp_quarti
+                                st.rerun()
                 else:
-                    st.info("🔒 **Gironi archiviati e classifiche definitive.**")
-                    if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali CL", type="primary", use_container_width=True, key="btn_genera_semis_cl"):
-                        a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
-                        b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
-                        coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
-                        coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0}]
-                        save_data(coppe, COPPE_PATH)
-                        st.rerun()
-
-        if coppe["cl"]["semis_andata"]:
-            st.divider()
-            st.write("🟡 **Semifinali (Andata e Ritorno)**")
-            semis_salvate = coppe["cl"].get("semis_salvate", False)
+                    st.info("⏳ In attesa del Sorteggio Ufficiale dei Quarti di Finale.")
             
-            with st.container(border=True):
-                for i in range(2):
-                    ma = coppe["cl"]["semis_andata"][i]
-                    mr = coppe["cl"]["semis_ritorno"][i]
+            if coppe["ci"]["quarti"]:
+                st.write("🔴 **Quarti di Finale (G. 10)**")
+                
+                # Leggiamo dal database se questa fase è già stata chiusa
+                quarti_salvati = coppe["ci"].get("quarti_salvati", False)
+                
+                with st.container(border=True):
+                    for i, m in enumerate(coppe["ci"]["quarti"]):
+                        
+                        # 1. RICHIAMO LA FUNZIONE MAGICA (Stampa i team e i gol)
+                        disegna_partita(m, match_id=f"ci_q_{i}", is_locked=quarti_salvati, is_admin=st.session_state.is_admin)
+                        
+                        # 2. SELETTORE DEL VINCITORE (Sotto alla partita)
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        
+                        if quarti_salvati:
+                            c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa il turno: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                        else:
+                            opzioni = ["-", m['home'], m['away']]
+                            default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                            scelta = c_passa.selectbox("Passa il turno:", opzioni, index=default_idx, key=f"ci_q_v_{i}", disabled=not st.session_state.is_admin)
+                            m['vincente'] = scelta if scelta != "-" else None
+                        
+                        if i < len(coppe["ci"]["quarti"]) - 1:
+                            st.divider()
+                        else:
+                            st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
+                
+                if st.session_state.is_admin:
+                    if not quarti_salvati:
+                        # Rinominato il bottone in "Archivia"
+                        if st.button("Salva e Archivia Quarti Coppa Italia", type="primary"): 
+                            vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
+                            # Controllo di sicurezza: non ti fa archiviare se hai lasciato il trattino "-"
+                            if None in vincitori:
+                                st.error("⚠️ Seleziona chi passa il turno in tutte le partite prima di archiviare!")
+                            else:
+                                coppe["ci"]["quarti_salvati"] = True
+                                save_data(coppe, COPPE_PATH)
+                                verifica_obiettivi_dinamici()
+                                st.rerun()
+                    else:
+                        st.info("🔒 **Quarti di Finale archiviati.**")
+                        if not coppe["ci"]["semis"] and st.button("Genera Semifinali Coppa Italia", type="primary"):
+                            vincitori = [m.get('vincente') for m in coppe["ci"]["quarti"]]
+                            coppe["ci"]["semis"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}, {"home": vincitori[2], "away": vincitori[3], "gol_home": 0, "gol_away": 0}]
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+
+            if coppe["ci"]["semis"]:
+                st.write("🟡 **Semifinali (G. 20)**")
+                semis_salvate = coppe["ci"].get("semis_salvate", False)
+                
+                with st.container(border=True):
+                    for i, m in enumerate(coppe["ci"]["semis"]):
+                        
+                        # 1. RICHIAMO DELLA FUNZIONE DRY
+                        disegna_partita(m, match_id=f"ci_s_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                        
+                        # 2. SELETTORE VINCITORE
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        if semis_salvate:
+                            c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                        else:
+                            opzioni = ["-", m['home'], m['away']]
+                            default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                            scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"ci_s_v_{i}", disabled=not st.session_state.is_admin)
+                            m['vincente'] = scelta if scelta != "-" else None
+                        
+                        if i < len(coppe["ci"]["semis"]) - 1:
+                            st.divider()
+                        else:
+                            st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
+                
+                if st.session_state.is_admin:
+                    if not semis_salvate:
+                        if st.button("Salva e Archivia Semifinali Coppa Italia", type="primary"): 
+                            vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
+                            if None in vincitori:
+                                st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
+                            else:
+                                coppe["ci"]["semis_salvate"] = True
+                                save_data(coppe, COPPE_PATH)
+                                verifica_obiettivi_dinamici()
+                                st.rerun()
+                    else:
+                        st.info("🔒 **Semifinali archiviate.**")
+                        if not coppe["ci"]["finale"] and st.button("Genera Finale Coppa Italia", type="primary"):
+                            vincitori = [m.get('vincente') for m in coppe["ci"]["semis"]]
+                            perdenti = [m['home'] if m.get('vincente') == m['away'] else m['away'] for m in coppe["ci"]["semis"]]
+                            coppe["ci"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
+                            coppe["ci"]["perse_semis"] = perdenti
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
                     
-                    st.markdown(f"<h5 style='text-align: center; color: #1E293B; margin-bottom: 10px;'> {ma['home']} vs {ma['away']}</h5>", unsafe_allow_html=True)
+            if coppe["ci"]["finale"]:
+                st.write("🟢 **Finale (G. 28)**")
+                finale_salvata = coppe["ci"].get("finale_salvata", False)
+                
+                with st.container(border=True):
+                    m = coppe["ci"]["finale"][0]
                     
-                    st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-bottom: -10px;'>✈️ Andata (G. 22)</div>", unsafe_allow_html=True)
-                    disegna_partita(ma, match_id=f"cl_s_a_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                    # 1. RICHIAMO DELLA FUNZIONE DRY
+                    disegna_partita(m, match_id="ci_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
                     
-                    st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-top: 15px; margin-bottom: -10px;'>🏠 Ritorno (G. 25)</div>", unsafe_allow_html=True)
-                    disegna_partita(mr, match_id=f"cl_s_r_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                    # 2. SELETTORE VINCITORE
+                    _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                    if finale_salvata:
+                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                    else:
+                        opzioni = ["-", m['home'], m['away']]
+                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                        scelta = c_passa.selectbox("VINCITORE Coppa Italia:", opzioni, index=default_idx, key="ci_f_v", disabled=not st.session_state.is_admin)
+                        m['vincente'] = scelta if scelta != "-" else None
+
+                    st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
+                
+                if st.session_state.is_admin:
+                    if not finale_salvata:
+                        if st.button("Salva e Archivia Finale Coppa Italia", type="primary"): 
+                            vincente = m.get('vincente')
+                            if not vincente:
+                                st.error("⚠️ Seleziona il vincitore prima di archiviare!")
+                            else:
+                                coppe["ci"]["finale_salvata"] = True
+                                save_data(coppe, COPPE_PATH)
+                                verifica_obiettivi_dinamici()
+                                st.rerun()
+                    else:
+                        st.info("🔒 **Finale archiviata.**")
+                        # --- POPUP CONFERMA PREMI COPPA ITALIA ---
+                        @st.dialog("🇮🇹 CONFERMA PREMI COPPA ITALIA")
+                        def popup_conferma_premi_ci(m_finale):
+                            st.warning("Stai per accreditare i fondi per la vittoria della Coppa Italia. Confermi?")
+                            if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
+                                vincente = m_finale.get('vincente')
+                                perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
+                                
+                                # --- 1. VINCITORE (35 M) ---
+                                premio_v = 35.0
+                                db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                                db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                                db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Coppa Italia: +{premio_v}M")
+                                log_evento(vincente, "🇮🇹", f"ha vinto la Coppa Italia e incassa **{premio_v} M**!")
+
+                                # --- 2. FINALISTA (20 M) ---
+                                premio_f = 20.0
+                                db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                                db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                                db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Coppa Italia: +{premio_f}M")
+                                log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Coppa Italia.")
+
+                                # --- 3. SEMIFINALISTI (10 M) ---
+                                premio_s = 10.0
+                                for sq in coppe["ci"].get("perse_semis", []): 
+                                    db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                                    db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                                    db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Coppa Italia: +{premio_s}M")
+                                    log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Coppa Italia.")
+                                    
+                                coppe["ci"]["premi_dati"] = True
+                                save_data(db, DB_PATH)
+                                save_data(coppe, COPPE_PATH)
+                                st.session_state.msg_premi_ci = "Premi Coppa Italia erogati con successo!"
+                                st.rerun()
+
+                        st.info("🔒 **Finale archiviata.**")
+                        if not coppe["ci"]["premi_dati"]:
+                            if st.button("🏆 Eroga Premi Coppa Italia", type="primary"):
+                                popup_conferma_premi_ci(m)
+                                
+                        if "msg_premi_ci" in st.session_state:
+                            st.success(st.session_state.msg_premi_ci)
+                            del st.session_state.msg_premi_ci
+        
+        # ---------------- CHAMPIONS LEAGUE ----------------
+        with t_cl:
+            st.subheader("🏆 Champions League")
+            
+            stile_box = "background-color: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 0; text-align: center; font-size: 16px;"
+
+            # --- FASE 1: ANIMAZIONE ESTRAZIONE GIRONI ---
+            if not coppe["cl"].get("gir_A"):
+                if st.session_state.is_admin:
+                    if "cl_draw_step" not in st.session_state:
+                        if st.button("🎉 Inizia Sorteggio Gironi Champions League", type="primary"):
+                            import random
+                            teams = list(db.keys())
+                            random.shuffle(teams)
+                            st.session_state.cl_shuffled_teams = teams
+                            st.session_state.cl_draw_step = 0
+                            st.session_state.cl_gir_A = []
+                            st.session_state.cl_gir_B = []
+                            st.rerun()
+                    else:
+                        st.markdown("### 🥁 Sorteggio Gironi in corso...")
+                        st.divider()
+                        
+                        colA, colB = st.columns(2)
+                        with colA:
+                            st.markdown("<div style='background-color: #EFF6FF; padding: 15px; border-radius: 8px; border: 2px solid #BFDBFE; height: 100%;'>", unsafe_allow_html=True)
+                            st.markdown("<h4 style='color: #1D4ED8; text-align: center;'>🔵 Girone A</h4>", unsafe_allow_html=True)
+                            for t in st.session_state.cl_gir_A: 
+                                st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #DBEAFE;'>{t}</div>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                        with colB:
+                            st.markdown("<div style='background-color: #FEF2F2; padding: 15px; border-radius: 8px; border: 2px solid #FECACA; height: 100%;'>", unsafe_allow_html=True)
+                            st.markdown("<h4 style='color: #B91C1C; text-align: center;'>🔴 Girone B</h4>", unsafe_allow_html=True)
+                            for t in st.session_state.cl_gir_B: 
+                                st.markdown(f"<div style='background-color: white; padding: 10px; margin-bottom: 5px; border-radius: 5px; text-align: center; font-weight: bold; border: 1px solid #FEE2E2;'>{t}</div>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                        
+                        st.write("")
+                        
+                        if st.session_state.cl_draw_step < 8:
+                            girone_dest = "A 🔵" if st.session_state.cl_draw_step % 2 == 0 else "B 🔴"
+                            if st.button(f"🎱 Estrai squadra per il Girone {girone_dest}", use_container_width=True):
+                                import time
+                                with st.spinner("Apertura pallina..."):
+                                    time.sleep(1.2)
+                                t = st.session_state.cl_shuffled_teams[st.session_state.cl_draw_step]
+                                if st.session_state.cl_draw_step % 2 == 0:
+                                    st.session_state.cl_gir_A.append(t)
+                                else:
+                                    st.session_state.cl_gir_B.append(t)
+                                st.session_state.cl_draw_step += 1
+                                st.rerun()
+                        else:
+                            st.success("✅ Squadre Assegnate ai Gironi!")
+                            if st.button("Ufficializza Gironi e passa ai Calendari", type="primary", use_container_width=True):
+                                coppe["cl"]["gir_A"] = st.session_state.cl_gir_A
+                                coppe["cl"]["gir_B"] = st.session_state.cl_gir_B
+                                save_data(coppe, COPPE_PATH)
+                                del st.session_state.cl_draw_step
+                                del st.session_state.cl_shuffled_teams
+                                del st.session_state.cl_gir_A
+                                del st.session_state.cl_gir_B
+                                st.rerun()
+                else:
+                    st.info("⏳ In attesa del Sorteggio dei Gironi.")
+
+            # --- FASE 2: ANIMAZIONE STESURA CALENDARI ---
+            elif coppe["cl"].get("gir_A") and not coppe["cl"].get("cal_A"):
+                if st.session_state.is_admin:
+                    if "cl_cal_step" not in st.session_state:
+                        if st.button("📅 Inizia Stesura Calendari Champions League", type="primary"):
+                            st.session_state.cl_temp_cal_A = genera_calendario_berger(coppe["cl"]["gir_A"], 6)
+                            st.session_state.cl_temp_cal_B = genera_calendario_berger(coppe["cl"]["gir_B"], 6)
+                            st.session_state.cl_cal_step = 0
+                            st.rerun()
+                    else:
+                        st.markdown("### 🗓️ Composizione Calendario in corso...")
+                        st.divider()
+                        
+                        for step in range(st.session_state.cl_cal_step):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"**Giornata {step+1} - Girone A**")
+                                for m in st.session_state.cl_temp_cal_A[step]:
+                                    st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                            with c2:
+                                st.markdown(f"**Giornata {step+1} - Girone B**")
+                                for m in st.session_state.cl_temp_cal_B[step]:
+                                    st.markdown(f"<div style='background-color: #F8FAFC; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #E2E8F0; text-align: center;'><b>{m['home']}</b> - <b>{m['away']}</b></div>", unsafe_allow_html=True)
+                            st.write("")
+                            
+                        if st.session_state.cl_cal_step < 6:
+                            if st.button(f"Rivela Accoppiamenti Giornata {st.session_state.cl_cal_step + 1}", use_container_width=True):
+                                import time
+                                with st.spinner("Elaborazione algoritmi..."):
+                                    time.sleep(1)
+                                st.session_state.cl_cal_step += 1
+                                st.rerun()
+                        else:
+                            st.success("✅ Calendari Completati!")
+                            if st.button("Ufficializza Calendari Champions", type="primary", use_container_width=True):
+                                coppe["cl"]["cal_A"] = st.session_state.cl_temp_cal_A
+                                coppe["cl"]["cal_B"] = st.session_state.cl_temp_cal_B
+                                save_data(coppe, COPPE_PATH)
+                                del st.session_state.cl_cal_step
+                                del st.session_state.cl_temp_cal_A
+                                del st.session_state.cl_temp_cal_B
+                                st.rerun()
+
+            # --- FASE 3: MOSTRA I CALENDARI DOPO L'UFFICIALITÀ ---
+            if coppe["cl"].get("gir_A") and coppe["cl"].get("cal_A"):
+                st.write("### Fase a Gironi")
+                
+                gironi_salvati = coppe["cl"].get("gironi_salvati", False)
+                
+                # --- CALCOLO DINAMICO PUNTI E STATISTICHE ---
+                stats_A = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_A"]}
+                stats_B = {t: {"Punti": 0, "GF": 0, "GS": 0, "DR": 0} for t in coppe["cl"]["gir_B"]}
+                
+                def calcola_stats(calendario, dict_stats):
+                    for md in calendario:
+                        for m in md:
+                            if m.get("giocata", False):
+                                gh, ga = m["gol_home"], m["gol_away"]
+                                dict_stats[m["home"]]["GF"] += gh
+                                dict_stats[m["home"]]["GS"] += ga
+                                dict_stats[m["away"]]["GF"] += ga
+                                dict_stats[m["away"]]["GS"] += gh
+                                if gh > ga: dict_stats[m["home"]]["Punti"] += 3
+                                elif gh == ga: 
+                                    dict_stats[m["home"]]["Punti"] += 1
+                                    dict_stats[m["away"]]["Punti"] += 1
+                                else: dict_stats[m["away"]]["Punti"] += 3
+                    for t, stats in dict_stats.items():
+                        stats["DR"] = stats["GF"] - stats["GS"]
+                                
+                calcola_stats(coppe["cl"].get("cal_A", []), stats_A)
+                calcola_stats(coppe["cl"].get("cal_B", []), stats_B)
+                
+                df_A = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_A.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+                df_B = pd.DataFrame([{"Squadra": k, **v} for k, v in stats_B.items()]).sort_values(by=["Punti", "DR", "GF"], ascending=[False, False, False])
+
+                st.markdown("""
+                <style>
+                .tabella-gironi { border-collapse: collapse; width: 100%; background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); font-family: sans-serif; margin-bottom: 20px; border: 1px solid #E2E8F0; }
+                .tabella-gironi th { background-color: #F8FAFC; color: #64748B; padding: 12px 15px; font-size: 13px; text-align: center; border-bottom: 2px solid #E2E8F0; }
+                .tabella-gironi td { padding: 12px 15px; font-size: 14px; color: #334155; text-align: center; border-bottom: 1px solid #F1F5F9; }
+                .tabella-gironi th:first-child, .tabella-gironi td:first-child { text-align: left; }
+                .tabella-gironi tr:hover { background-color: #F1F5F9; }
+                </style>
+                """, unsafe_allow_html=True)
+
+                colA, colB = st.columns(2)
+                
+                with colA:
+                    st.markdown("#### 🔵 Girone A")
+                    html_A = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
+                    for _, row in df_A.iterrows():
+                        html_A += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
+                    html_A += "</table>"
+                    st.markdown(html_A, unsafe_allow_html=True)
+                    
+                    with st.expander("Calendario Girone A"):
+                        for g_idx, md in enumerate(coppe["cl"].get("cal_A", [])):
+                            gior = 2
+                            st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
+                            for m_idx, m in enumerate(md):
+                                partita_bloccata = gironi_salvati or m.get("giocata", False)
+                                
+                                # Magia delle colonne nidificate per aggiungere la checkbox
+                                c_partita, c_spunta = st.columns([9, 1])
+                                with c_partita:
+                                    disegna_partita(m, match_id=f"cl_a_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
+                                with c_spunta:
+                                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                                    if partita_bloccata:
+                                        st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
+                                    else:
+                                        m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_a_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                            st.divider()
+                
+                with colB:
+                    st.markdown("#### 🔴 Girone B")
+                    html_B = '<table class="tabella-gironi"><tr><th>Squadra</th><th>Punti</th><th>DR</th></tr>'
+                    for _, row in df_B.iterrows():
+                        html_B += f"<tr><td><strong>{row['Squadra']}</strong></td><td style='font-weight: bold; color: #2563EB;'>{row['Punti']}</td><td>{row['DR']}</td></tr>"
+                    html_B += "</table>"
+                    st.markdown(html_B, unsafe_allow_html=True)
+                    
+                    with st.expander("Calendario Girone B"):
+                        for g_idx, md in enumerate(coppe["cl"].get("cal_B", [])):
+                            gior = 2
+                            st.markdown(f"**Giornata {g_idx + 1} (G. {gior + 3*g_idx})**")
+                            for m_idx, m in enumerate(md):
+                                partita_bloccata = gironi_salvati or m.get("giocata", False)
+                                
+                                c_partita, c_spunta = st.columns([9, 1])
+                                with c_partita:
+                                    disegna_partita(m, match_id=f"cl_b_{g_idx}_{m_idx}", is_locked=partita_bloccata, is_admin=st.session_state.is_admin)
+                                with c_spunta:
+                                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                                    if partita_bloccata:
+                                        st.markdown("<div style='font-size: 18px;' title='Giocata'>✅</div>", unsafe_allow_html=True)
+                                    else:
+                                        m["giocata"] = st.checkbox("✅", value=m.get("giocata", False), key=f"cl_b_g_{g_idx}_{m_idx}", disabled=not st.session_state.is_admin, label_visibility="collapsed")
+                            st.divider()
+
+                if st.session_state.is_admin:
+                    if not gironi_salvati:
+                        btn_salva, btn_archivia = st.columns(2)
+                        if btn_salva.button("💾 Salva Risultati Parziali", type="secondary", use_container_width=True, key="btn_salva_cl"):
+                            save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
+                            st.success("Risultati parziali salvati!.")
+                            st.rerun()
+                            
+                        if btn_archivia.button("🔒 Archivia Gironi Champions League", type="primary", use_container_width=True, key="btn_archivia_cl"):
+                            coppe["cl"]["gironi_salvati"] = True
+                            save_data(coppe, COPPE_PATH)
+                            verifica_obiettivi_dinamici()
+                            st.rerun()
+                    else:
+                        st.info("🔒 **Gironi archiviati e classifiche definitive.**")
+                        if not coppe["cl"]["semis_andata"] and st.button("Genera Semifinali CL", type="primary", use_container_width=True, key="btn_genera_semis_cl"):
+                            a1, a2 = df_A.iloc[0]["Squadra"], df_A.iloc[1]["Squadra"]
+                            b1, b2 = df_B.iloc[0]["Squadra"], df_B.iloc[1]["Squadra"]
+                            coppe["cl"]["semis_andata"] = [{"home": a1, "away": b2, "gol_home": 0, "gol_away": 0}, {"home": b1, "away": a2, "gol_home": 0, "gol_away": 0}]
+                            coppe["cl"]["semis_ritorno"] = [{"home": b2, "away": a1, "gol_home": 0, "gol_away": 0}, {"home": a2, "away": b1, "gol_home": 0, "gol_away": 0}]
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+
+            if coppe["cl"]["semis_andata"]:
+                st.divider()
+                st.write("🟡 **Semifinali (Andata e Ritorno)**")
+                semis_salvate = coppe["cl"].get("semis_salvate", False)
+                
+                with st.container(border=True):
+                    for i in range(2):
+                        ma = coppe["cl"]["semis_andata"][i]
+                        mr = coppe["cl"]["semis_ritorno"][i]
+                        
+                        st.markdown(f"<h5 style='text-align: center; color: #1E293B; margin-bottom: 10px;'> {ma['home']} vs {ma['away']}</h5>", unsafe_allow_html=True)
+                        
+                        st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-bottom: -10px;'>✈️ Andata (G. 22)</div>", unsafe_allow_html=True)
+                        disegna_partita(ma, match_id=f"cl_s_a_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                        
+                        st.markdown("<div style='text-align: center; color: #64748B; font-size: 13px; margin-top: 15px; margin-bottom: -10px;'>🏠 Ritorno (G. 25)</div>", unsafe_allow_html=True)
+                        disegna_partita(mr, match_id=f"cl_s_r_{i}", is_locked=semis_salvate, is_admin=st.session_state.is_admin)
+                        
+                        _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
+                        if semis_salvate:
+                            c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{mr.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                        else:
+                            opzioni = ["-", ma['home'], ma['away']]
+                            default_idx = opzioni.index(mr.get('vincente')) if mr.get('vincente') in opzioni else 0
+                            scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
+                            mr['vincente'] = scelta if scelta != "-" else None
+                            
+                        if i < 1:
+                            st.divider()
+                        else:
+                            st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
+
+                if st.session_state.is_admin:
+                    if not semis_salvate:
+                        if st.button("Salva e Archivia Semifinali Champions League", type="primary"):
+                            vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
+                            if None in vincitori:
+                                st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
+                            else:
+                                coppe["cl"]["semis_salvate"] = True
+                                save_data(coppe, COPPE_PATH)
+                                verifica_obiettivi_dinamici()
+                                st.rerun()
+                    else:
+                        st.info("🔒 **Semifinali archiviate.**")
+                        if not coppe["cl"]["finale"] and st.button("Genera Finale Champions League", type="primary"):
+                            vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
+                            perdenti = []
+                            for i in range(2):
+                                ma = coppe["cl"]["semis_andata"][i]
+                                v = coppe["cl"]["semis_ritorno"][i].get('vincente')
+                                p = ma['home'] if v == ma['away'] else ma['away']
+                                perdenti.append(p)
+                                
+                            coppe["cl"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
+                            coppe["cl"]["perse_semis"] = perdenti
+                            save_data(coppe, COPPE_PATH)
+                            st.rerun()
+                    
+            if coppe["cl"]["finale"]:
+                st.write("🟢 **Finale (G. 32)**")
+                finale_salvata = coppe["cl"].get("finale_salvata", False)
+                
+                with st.container(border=True):
+                    m = coppe["cl"]["finale"][0]
+                    
+                    disegna_partita(m, match_id="cl_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
                     
                     _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                    if semis_salvate:
-                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>Passa in Finale: <b style='color: #0F172A;'>{mr.get('vincente', '')}</b></div>", unsafe_allow_html=True)
+                    if finale_salvata:
+                        c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE CL: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
                     else:
-                        opzioni = ["-", ma['home'], ma['away']]
-                        default_idx = opzioni.index(mr.get('vincente')) if mr.get('vincente') in opzioni else 0
-                        scelta = c_passa.selectbox("Passa in Finale:", opzioni, index=default_idx, key=f"cl_s_v_{i}", disabled=not st.session_state.is_admin)
-                        mr['vincente'] = scelta if scelta != "-" else None
+                        opzioni = ["-", m['home'], m['away']]
+                        default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
+                        scelta = c_passa.selectbox("VINCITORE Champions League:", opzioni, index=default_idx, key="cl_f_v", disabled=not st.session_state.is_admin)
+                        m['vincente'] = scelta if scelta != "-" else None
+
+                    st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
                         
-                    if i < 1:
-                        st.divider()
+                if st.session_state.is_admin:
+                    if not finale_salvata:
+                        if st.button("Salva e Archivia Finale Champions League", type="primary"):
+                            if not m.get('vincente'):
+                                st.error("⚠️ Seleziona il vincitore prima di archiviare!")
+                            else:
+                                coppe["cl"]["finale_salvata"] = True
+                                save_data(coppe, COPPE_PATH)
+                                verifica_obiettivi_dinamici()
+                                st.rerun()
                     else:
-                        st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
-
-            if st.session_state.is_admin:
-                if not semis_salvate:
-                    if st.button("Salva e Archivia Semifinali Champions League", type="primary"):
-                        vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
-                        if None in vincitori:
-                            st.error("⚠️ Seleziona chi passa in finale in tutte le partite prima di archiviare!")
-                        else:
-                            coppe["cl"]["semis_salvate"] = True
-                            save_data(coppe, COPPE_PATH)
-                            verifica_obiettivi_dinamici()
-                            st.rerun()
-                else:
-                    st.info("🔒 **Semifinali archiviate.**")
-                    if not coppe["cl"]["finale"] and st.button("Genera Finale Champions League", type="primary"):
-                        vincitori = [coppe["cl"]["semis_ritorno"][0].get('vincente'), coppe["cl"]["semis_ritorno"][1].get('vincente')]
-                        perdenti = []
-                        for i in range(2):
-                            ma = coppe["cl"]["semis_andata"][i]
-                            v = coppe["cl"]["semis_ritorno"][i].get('vincente')
-                            p = ma['home'] if v == ma['away'] else ma['away']
-                            perdenti.append(p)
-                            
-                        coppe["cl"]["finale"] = [{"home": vincitori[0], "away": vincitori[1], "gol_home": 0, "gol_away": 0}]
-                        coppe["cl"]["perse_semis"] = perdenti
-                        save_data(coppe, COPPE_PATH)
-                        st.rerun()
-                
-        if coppe["cl"]["finale"]:
-            st.write("🟢 **Finale (G. 32)**")
-            finale_salvata = coppe["cl"].get("finale_salvata", False)
-            
-            with st.container(border=True):
-                m = coppe["cl"]["finale"][0]
-                
-                disegna_partita(m, match_id="cl_f", is_locked=finale_salvata, is_admin=st.session_state.is_admin)
-                
-                _, c_passa, _ = st.columns([2.5, 2.5, 2.5])
-                if finale_salvata:
-                    c_passa.markdown(f"<div style='text-align: center; margin-top: 8px; font-size: 14px; color: #64748B;'>VINCITORE CL: <b style='color: #0F172A;'>{m.get('vincente', '')}</b></div>", unsafe_allow_html=True)
-                else:
-                    opzioni = ["-", m['home'], m['away']]
-                    default_idx = opzioni.index(m.get('vincente')) if m.get('vincente') in opzioni else 0
-                    scelta = c_passa.selectbox("VINCITORE Champions League:", opzioni, index=default_idx, key="cl_f_v", disabled=not st.session_state.is_admin)
-                    m['vincente'] = scelta if scelta != "-" else None
-
-                st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
-                    
-            if st.session_state.is_admin:
-                if not finale_salvata:
-                    if st.button("Salva e Archivia Finale Champions League", type="primary"):
-                        if not m.get('vincente'):
-                            st.error("⚠️ Seleziona il vincitore prima di archiviare!")
-                        else:
-                            coppe["cl"]["finale_salvata"] = True
-                            save_data(coppe, COPPE_PATH)
-                            verifica_obiettivi_dinamici()
-                            st.rerun()
-                else:
-                    st.info("🔒 **Finale archiviata.**")
-                    # --- POPUP CONFERMA PREMI CHAMPIONS LEAGUE ---
-                    @st.dialog("🇪🇺 CONFERMA PREMI CHAMPIONS LEAGUE")
-                    def popup_conferma_premi_cl(m_finale):
-                        st.warning("Stai per accreditare i fondi per la vittoria della Champions League. Confermi?")
-                        if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
-                            vincente = m_finale.get('vincente')
-                            perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
-                            
-                            # --- 1. VINCITORE (50 M) ---
-                            premio_v = 50.0
-                            db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
-                            db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
-                            db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Champions League: +{premio_v}M")
-                            log_evento(vincente, "🇪🇺", f"ha vinto la Champions League e incassa **{premio_v} M**!")
-
-                            # --- 2. FINALISTA (35 M) ---
-                            premio_f = 35.0
-                            db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
-                            db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
-                            db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Champions League: +{premio_f}M")
-                            log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Champions League.")
-
-                            # --- 3. SEMIFINALISTI (20 M) ---
-                            premio_s = 20.0
-                            for sq in coppe["cl"].get("perse_semis", []): 
-                                db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
-                                db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
-                                db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Champions League: +{premio_s}M")
-                                log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Champions League.")
+                        st.info("🔒 **Finale archiviata.**")
+                        # --- POPUP CONFERMA PREMI CHAMPIONS LEAGUE ---
+                        @st.dialog("🇪🇺 CONFERMA PREMI CHAMPIONS LEAGUE")
+                        def popup_conferma_premi_cl(m_finale):
+                            st.warning("Stai per accreditare i fondi per la vittoria della Champions League. Confermi?")
+                            if st.button("Sì, sono sicuro. Eroga i Premi", type="primary", use_container_width=True):
+                                vincente = m_finale.get('vincente')
+                                perdente = m_finale['home'] if vincente == m_finale['away'] else m_finale['away']
                                 
-                            coppe["cl"]["premi_dati"] = True
-                            save_data(db, DB_PATH)
-                            save_data(coppe, COPPE_PATH)
-                            st.session_state.msg_premi_cl = "Premi Champions League erogati con successo!"
-                            st.rerun()
+                                # --- 1. VINCITORE (50 M) ---
+                                premio_v = 50.0
+                                db[vincente]['bilancio']['ricavi']['premi_sportivi'] += premio_v
+                                db[vincente]['cassa'] = round(db[vincente]['cassa'] + premio_v, 2)
+                                db[vincente]['bilancio']['storico_movimenti'].append(f"Vittoria Champions League: +{premio_v}M")
+                                log_evento(vincente, "🇪🇺", f"ha vinto la Champions League e incassa **{premio_v} M**!")
 
-                    st.info("🔒 **Finale archiviata.**")
-                    if not coppe["cl"]["premi_dati"]:
-                        if st.button("🏆 Eroga Premi Champions League", type="primary"):
-                            popup_conferma_premi_cl(m)
-                            
-                    if "msg_premi_cl" in st.session_state:
-                        st.success(st.session_state.msg_premi_cl)
-                        del st.session_state.msg_premi_cl
+                                # --- 2. FINALISTA (35 M) ---
+                                premio_f = 35.0
+                                db[perdente]['bilancio']['ricavi']['premi_sportivi'] += premio_f
+                                db[perdente]['cassa'] = round(db[perdente]['cassa'] + premio_f, 2)
+                                db[perdente]['bilancio']['storico_movimenti'].append(f"Finalista Champions League: +{premio_f}M")
+                                log_evento(perdente, "🥈", f" incassa **{premio_f} M** come finalista di Champions League.")
+
+                                # --- 3. SEMIFINALISTI (20 M) ---
+                                premio_s = 20.0
+                                for sq in coppe["cl"].get("perse_semis", []): 
+                                    db[sq]['bilancio']['ricavi']['premi_sportivi'] += premio_s
+                                    db[sq]['cassa'] = round(db[sq]['cassa'] + premio_s, 2)
+                                    db[sq]['bilancio']['storico_movimenti'].append(f"Semifinale Champions League: +{premio_s}M")
+                                    log_evento(sq, "🥉", f" incassa **{premio_s} M** per aver raggiunto la Semifinale di Champions League.")
+                                    
+                                coppe["cl"]["premi_dati"] = True
+                                save_data(db, DB_PATH)
+                                save_data(coppe, COPPE_PATH)
+                                st.session_state.msg_premi_cl = "Premi Champions League erogati con successo!"
+                                st.rerun()
+
+                        st.info("🔒 **Finale archiviata.**")
+                        if not coppe["cl"]["premi_dati"]:
+                            if st.button("🏆 Eroga Premi Champions League", type="primary"):
+                                popup_conferma_premi_cl(m)
+                                
+                        if "msg_premi_cl" in st.session_state:
+                            st.success(st.session_state.msg_premi_cl)
+                            del st.session_state.msg_premi_cl
 
 # ==========================================
-# 8. CHIUSURA FISCALE
+# 5. CHIUSURA FISCALE
 # ==========================================
-elif menu == "8. Chiusura Fiscale Bilancio":
+elif menu == "5. Chiusura Fiscale Bilancio":
     st.header("📜 Chiusura Fiscale")
     
     if not st.session_state.is_admin:
@@ -2724,9 +2698,9 @@ elif menu == "8. Chiusura Fiscale Bilancio":
         st.info("Nessuno storico disponibile. Esegui la chiusura fiscale a fine stagione per generare i prospetti.")
 
 # ==========================================
-# 9. CRONOLOGIA E UFFICIALITÀ LEGA
+# 6. CRONOLOGIA E UFFICIALITÀ LEGA
 # ==========================================
-elif menu == "9. Cronologia Ufficialità":
+elif menu == "6. Cronologia Ufficialità":
     st.header("📰 Notiziario Ufficiale Lega")
     st.caption("L'elenco cronologico di tutte le operazioni societarie e di mercato in tempo reale.")
     st.divider()
@@ -2775,9 +2749,9 @@ elif menu == "9. Cronologia Ufficialità":
             st.markdown(html_feed, unsafe_allow_html=True)
 
 # ==========================================
-# 10. CRUSCOTTO ASTA LIVE (SCHERMO INTERO)
+# 7. CRUSCOTTO ASTA LIVE (SCHERMO INTERO)
 # ==========================================
-# elif menu == "10. Cruscotto Asta Live":
+# elif menu == "7. Cruscotto Asta Live":
 #     st.markdown("<h1 style='text-align: center; color: #0F172A; margin-bottom: 30px; text-transform: uppercase; font-weight: 900;'>🔨 Tabellone Asta Live</h1>", unsafe_allow_html=True)
     
 #     # Pulsante per aggiornare il tabellone se un admin fa un acquisto da un altro PC
